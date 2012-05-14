@@ -548,6 +548,7 @@ Bool dce_init(void)
 {
     Task_Params params;
 
+    INFO("libdce from branch vincent/5432-video!");
     INFO("Creating DCE server thread...");
 
     /* Create DCE task. */
