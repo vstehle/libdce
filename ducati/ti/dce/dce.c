@@ -130,6 +130,19 @@ INFO("status.size=%d", status.size);
     return VIDDEC3_control(handle, XDM_UPDATEBUFS, &params, &status);
 }
 
+static void more_debug(void)
+{
+    DEBUG("more_debug");
+    FCSettings_init();
+    Diags_setMask(FCSETTINGS_MODNAME"+12345678LEXAIZFS");
+    CESettings_init();
+    Diags_setMask(CESETTINGS_MODNAME"+12345678LEXAIZFS");
+    Diags_setMask("ti.ipc.rpmsg.MessageQCopy+12345678LEXAIZFS");
+    Diags_setMask("ti.ipc.rpmsg.VirtQueue+12345678LEXAIZFS");
+    Diags_setMask("ti.sysbios.knl.Semaphore+12345678LEXAIZFS");
+    Diags_setMask("ti.sysbios.ipc.Semaphore+12345678LEXAIZFS");
+}
+
 
 /*
  * RPC message handlers
@@ -144,19 +157,7 @@ static int connect(void *msg)
 
     if (dce_debug <= 1) {
         DEBUG("enabling extra debug");
-
-        FCSettings_init();
-        Diags_setMask(FCSETTINGS_MODNAME"+12345678LEXAIZFS");
-        CESettings_init();
-        Diags_setMask(CESETTINGS_MODNAME"+12345678LEXAIZFS");
-
-        /*
-         * Enable use of runtime Diags_setMask per module:
-         *
-         * Codes: E = ENTRY, X = EXIT, L = LIFECYCLE, F = INFO, S = STATUS
-         */
-        Diags_setMask("ti.ipc.rpmsg.MessageQCopy=EXLFS");
-        Diags_setMask("ti.ipc.rpmsg.VirtQueue=EXLFS");
+        more_debug();
     }
 
     ivahd_init(req->chipset_id);
@@ -441,7 +442,10 @@ Bool dce_init(void)
 {
     Task_Params params;
 
+    // Hack!
     INFO("libdce from branch vincent/5432-video!");
+    more_debug();
+
     INFO("Creating DCE server thread...");
 
     /* Respond to ping tests from Linux side rpmsg sample drivers: */
