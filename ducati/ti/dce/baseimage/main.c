@@ -43,6 +43,10 @@
 #include <ti/grcm/RcmTypes.h>
 #include <ti/grcm/RcmServer.h>
 
+#include <ti/sdo/fc/global/FCSettings.h>
+#include <ti/sdo/ce/global/CESettings.h>
+#include <ti/dce/dce_priv.h>
+
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -53,6 +57,18 @@ int main(int argc, char **argv)
 
     /* Set up interprocessor notifications */
     System_printf("%s starting..\n", MultiProc_getName(MultiProc_self()));
+
+    // Debug!
+    DEBUG("more_debug");
+    FCSettings_init();
+    Diags_setMask(FCSETTINGS_MODNAME"+12345678LEXAIZFS");
+    CESettings_init();
+    Diags_setMask(CESETTINGS_MODNAME"+12345678LEXAIZFS");
+    Diags_setMask("ti.ipc.rpmsg.MessageQCopy+12345678LEXAIZFS");
+    Diags_setMask("ti.ipc.rpmsg.VirtQueue+12345678LEXAIZFS");
+    Diags_setMask("ti.sysbios.knl.Semaphore+12345678LEXAIZFS");
+    Diags_setMask("ti.sysbios.ipc.Semaphore+12345678LEXAIZFS");
+    Diags_setMask("ti.sdo.codecs.h264dec.H264DEC+12345678LEXAIZFS");
 
     hostId = MultiProc_getId("HOST");
     MessageQCopy_init(hostId);
