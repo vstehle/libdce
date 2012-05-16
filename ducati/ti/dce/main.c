@@ -84,15 +84,6 @@ int main(int argc, char **argv)
     // Debug!
     more_debug();
 
-
-    // Halt here!
-    {
-    static volatile int i = 0;
-    while(!i);
-    }
-
-
-
     /* Plug vring interrupts, and spin until host handshake complete. */
     VirtQueue_startup();
 
