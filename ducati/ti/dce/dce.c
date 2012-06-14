@@ -91,6 +91,7 @@ typedef Int32  (*ProcessFxn)(void *, void *, void *, void *, void *);
 typedef Int32  (*RelocFxn)(void *, uint8_t *ptr, uint32_t len);
 typedef void   (*DeleteFxn)(void *);
 
+static VIDDEC3_Handle viddec3_create(Engine_Handle engine, String name, VIDDEC3_Params *params);
 static int videnc2_reloc(VIDDEC3_Handle handle, uint8_t *ptr, uint32_t len);
 static int viddec3_reloc(VIDDEC3_Handle handle, uint8_t *ptr, uint32_t len);
 
@@ -107,11 +108,55 @@ static struct {
                 (RelocFxn)videnc2_reloc,
         },
         [OMAP_DCE_VIDDEC3] = {
-                (CreateFxn)VIDDEC3_create,   (ControlFxn)VIDDEC3_control,
+                (CreateFxn)viddec3_create,   (ControlFxn)VIDDEC3_control,
                 (ProcessFxn)VIDDEC3_process, (DeleteFxn)VIDDEC3_delete,
                 (RelocFxn)viddec3_reloc,
         },
 };
+
+static const char *get_viddec3_version(VIDDEC3_Handle h)
+{
+    #define SIZE 32
+    static char buffer[SIZE];
+
+    VIDDEC3_DynamicParams params = {
+            .size = sizeof(VIDDEC3_DynamicParams),
+    };
+
+    VIDDEC3_Status status = {
+            .size = sizeof(VIDDEC3_Status),
+            .data = {
+                    .buf = (XDAS_Int8 *)buffer,
+                    .bufSize = (XDAS_Int32)SIZE,
+            },
+    };
+
+    XDAS_Int32 s;
+    const char *r = "<unknown>";
+
+    s = VIDDEC3_control(h, XDM_GETVERSION, &params, &status);
+
+    if (s == VIDDEC3_EOK) {
+        buffer[SIZE - 1] = '\0';
+        r = buffer;
+    }
+
+    return r;
+}
+
+// VIDDEC3_create wrapper, to display version string in the trace.
+static VIDDEC3_Handle viddec3_create(Engine_Handle engine, String name, VIDDEC3_Params *params)
+{
+    VIDDEC3_Handle h;
+    h = VIDDEC3_create(engine, name, params);
+
+    if (h) {
+        const char *v = get_viddec3_version(h);
+        INFO("Created codec %s: version %s", name, v);
+    }
+
+    return h;
+}
 
 static int videnc2_reloc(VIDENC2_Handle handle, uint8_t *ptr, uint32_t len)
 {
