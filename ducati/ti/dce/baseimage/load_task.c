@@ -1,4 +1,7 @@
 /*
+ * Monitor load and trace any change.
+ * Author: Vincent Stehlé <v-stehle@ti.com>, copied from ping_tasks.c
+ *
  * Copyright (c) 2011, Texas Instruments Incorporated
  * All rights reserved.
  *
@@ -33,41 +36,58 @@
 #include <xdc/std.h>
 #include <xdc/cfg/global.h>
 #include <xdc/runtime/System.h>
-#include <xdc/runtime/Diags.h>
 
-#include <ti/ipc/MultiProc.h>
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
-#include <ti/ipc/rpmsg/VirtQueue.h>
-
-#include <ti/grcm/RcmTypes.h>
-#include <ti/grcm/RcmServer.h>
+#include <ti/sysbios/smp/Load.h>
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
-/* Legacy function to allow Linux side rpmsg sample tests to work: */
-extern void start_ping_tasks();
+// On TI platforms, 1 tick == 1 ms.
+#define SLEEP_TICKS 1000
 
-int main(int argc, char **argv)
+/* Monitor load and trace any change. */
+static Void loadTaskFxn(UArg arg0, UArg arg1)
 {
-    extern void start_load_task(void);
-    UInt16 hostId;
+    extern const Bool Load_updateInIdle;
+    extern const UInt Load_windowInMs;
+    UInt32 prev_load = 0;
 
-    /* Set up interprocessor notifications */
-    System_printf("%s starting..\n", MultiProc_getName(MultiProc_self()));
+    /* Suppress warnings. */
+    (void)arg0;
+    (void)arg1;
 
-    hostId = MultiProc_getId("HOST");
-    MessageQCopy_init(hostId);
+    System_printf("loadTask: started (SLEEP_TICKS: %u, Load_updateInIdle: %d, Load_windowInMs: %u)\n",
+                    SLEEP_TICKS, Load_updateInIdle, Load_windowInMs);
 
-    /* Some background ping testing tasks, used by rpmsg samples: */
-    start_ping_tasks();
+    /* Infinite loop to trace load. */
+    for (;;) {
+        UInt32 load;
 
-    /* CPU load reporting in the trace. */
-    start_load_task();
+        /* Get load. */
+        load = Load_getCPULoad();
 
-    BIOS_start();
+        /* Trace if changed. */
+        if (load != prev_load)
+            System_printf("loadTask: cpu load = %u%%\n", load);
 
-    return 0;
+        /* Delay & swap. */
+        Task_sleep(SLEEP_TICKS);
+        prev_load = load;
+    }
+}
+
+void start_load_task(void)
+{
+    Task_Params params;
+
+    /* Monitor load and trace any change. */
+    Task_Params_init(&params);
+    params.instance->name = "loadtsk";
+    params.priority = 1;
+
+    if(!Task_create(loadTaskFxn, &params, NULL))
+        System_printf("Could not create load task!\n");
 }
