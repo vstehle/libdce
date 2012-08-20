@@ -152,6 +152,35 @@ psi_bios_kpi  bios_kpi[2];           /* CPU data base (2 cores) */
  * Functions
  ***************************************************************/
 
+/* Hacks for integration into the DCE image load reporting. */
+unsigned long get_ivahd_t_tot(void)
+{
+    return iva_kpi.ivahd_t_tot;
+}
+
+/* You'd better protect calls to those with a GateAll_enter/leave, if you want
+ * sane values reported, as the sum computation is not atomic. */
+unsigned long get_core_total(unsigned core)
+{
+    unsigned long total = 0;
+    psi_bios_kpi *core_kpi = &bios_kpi[core];
+    int i;
+
+    for (i = 0; i < core_kpi->nb_tasks; i++)
+        total += core_kpi->tasks[i].total_time;
+
+    /* Subtract idle task time from total. */
+    total -= *(core_kpi->ptr_idle_total);
+
+    for (i = 0; i < core_kpi->nb_swi; i++)
+        total += core_kpi->swi[i].total_time;
+
+    for (i = 0; i < core_kpi->nb_hwi; i++)
+        total += core_kpi->hwi[i].total_time;
+
+    return total;
+}
+
 #ifndef BUILD_FOR_SMP
 /***************************************************************
  * Core_getCoreId

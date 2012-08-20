@@ -40,10 +40,13 @@
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/smp/Load.h>
+#include <ti/sysbios/gates/GateAll.h>
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include "profile.h"
 
 /*
  * Time to sleep between load reporting attempts, in ticks.
@@ -57,14 +60,82 @@
  */
 #define THRESHOLD 1
 
+/* Compute a load, in percent. We nicely handle the case where the load is
+ * negative or superior to 100%, in which case we return 0. This happens when
+ * the profiler is reset between two measurements (e.g. player exit &
+ * relaunched). Also, we handle div by zero, just in case. */
+static unsigned compute_load(unsigned long delta_time, unsigned long *prev_val, unsigned long val)
+{
+    unsigned load;
+    long delta = (long)val - (long)*prev_val;
+
+    if (delta < 0 || delta > delta_time || !delta_time)
+        load = 0;
+
+    else
+        load = 100 * delta / delta_time;
+
+    *prev_val = val;
+    return load;
+}
+
+/* Compute IVA load from KPI profiler, in percent. TODO: Better integration
+ * into the KPI profiler. No need to protect the load "reading" as we
+ * atomically read a single value. */
+static unsigned compute_iva_load(unsigned long delta_time, unsigned long *prev_ivahd_t_tot)
+{
+    extern unsigned long get_ivahd_t_tot(void);
+    unsigned long ivahd_t_tot = get_ivahd_t_tot();
+    return compute_load(delta_time, prev_ivahd_t_tot, ivahd_t_tot);
+}
+
+/* Compute core load from KPI profiler, in percent. TODO: Better integration
+ * into the KPI profiler. We protect the load "reading" for sanity of the
+ * value. */
+static unsigned compute_core_load(unsigned core, unsigned long delta_time,
+    unsigned long *prev_core_total, GateAll_Handle gate)
+{
+    extern unsigned long get_core_total(unsigned core);
+    unsigned long core_total;
+    IArg key;
+
+    /* CRITICAL SECTION */
+    key = GateAll_enter(gate);
+    core_total = get_core_total(core);
+    GateAll_leave(gate, key);
+
+    return compute_load(delta_time, prev_core_total, core_total);
+}
+
+/* Trace a load if delta is above threshold. */
+static void trace_if_above(unsigned load, unsigned *prev_load, const char *name)
+{
+    unsigned delta;
+
+    /* Trace if changed and delta above threshold. */
+    delta = abs((int)load - (int)*prev_load);
+
+    if (delta > THRESHOLD) {
+        System_printf("loadTask: %s load = %u%%\n", name, load);
+        *prev_load = load;
+    }
+}
+
 /* Monitor load and trace any change. */
 static Void loadTaskFxn(UArg arg0, UArg arg1)
 {
-    UInt32 prev_load = 0;
+    UInt32 prev_bios_load = 0;
+    unsigned prev_iva_load = 0, prev_core0_load = 0, prev_core1_load = 0;
+    unsigned long prev_time = 0, prev_ivahd_t_tot = 0, prev_core0_total = 0,
+        prev_core1_total = 0;
+    GateAll_Handle gate;
 
     /* Suppress warnings. */
     (void)arg0;
     (void)arg1;
+
+    /* Prepare our Gate. */
+    gate = GateAll_create(NULL, NULL);
 
     System_printf(
         "loadTask: started\n"
@@ -83,21 +154,32 @@ static Void loadTaskFxn(UArg arg0, UArg arg1)
         Load_windowInMs
     );
 
-    /* Infinite loop to trace load. */
+    /* Infinite loop to trace loads. */
     for (;;) {
-        UInt32 load;
-        unsigned delta;
+        extern unsigned long get_32k(void);
+        UInt32 bios_load;
+        unsigned iva_load, core0_load, core1_load;
+        unsigned long time, delta_time;
 
-        /* Get load. */
-        load = Load_getCPULoad();
+        /* Get BIOS load and trace if delta above threshold. */
+        bios_load = Load_getCPULoad();
+        trace_if_above(bios_load, &prev_bios_load, "BIOS");
 
-        /* Trace if changed and delta above threshold. */
-        delta = abs((int)load - (int)prev_load);
+        /* Compute 32k delta only once. */
+        time = get_32k();
+        delta_time = time - prev_time;
+        prev_time = time;
 
-        if (delta > THRESHOLD) {
-            System_printf("loadTask: cpu load = %u%%\n", load);
-            prev_load = load;
-        }
+        /* Get IVA load, cores loads. "Gating" is done inside each core load
+         * computation, and preemption can happen between them. */
+        iva_load = compute_iva_load(delta_time, &prev_ivahd_t_tot);
+        core0_load = compute_core_load(0, delta_time, &prev_core0_total, gate);
+        core1_load = compute_core_load(1, delta_time, &prev_core1_total, gate);
+
+        /* Trace if delta above threshold. */
+        trace_if_above(iva_load, &prev_iva_load, "IVA");
+        trace_if_above(core0_load, &prev_core0_load, "core0");
+        trace_if_above(core1_load, &prev_core1_load, "core1");
 
         /* Delay. */
         Task_sleep(SLEEP_TICKS);
