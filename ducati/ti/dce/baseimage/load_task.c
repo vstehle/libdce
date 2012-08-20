@@ -40,10 +40,13 @@
 #include <ti/sysbios/BIOS.h>
 #include <ti/sysbios/knl/Task.h>
 #include <ti/sysbios/smp/Load.h>
+#include <ti/sysbios/gates/GateAll.h>
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+
+#include "profile.h"
 
 /*
  * Time to sleep between load reporting attempts, in ticks.
@@ -52,19 +55,116 @@
 #define SLEEP_TICKS 1000
 
 /*
+ * Load "precision". We compute our loads in percent, multiplied by this
+ * factor.
+ */
+#define PRECISION 100
+
+/*
  * Load reporting "threshold". When the new load is within previous reported
  * load +- this value, we do not report it.
  */
-#define THRESHOLD 1
+#define THRESHOLD (1 * PRECISION)
+
+/* State variables for one load. */
+struct load {
+    unsigned long prev_time,    /* Previous time the load was sampled (32k or CTM time). */
+        prev_val;               /* Previously sampled load value (32k or CTM ticks). */
+    unsigned prev_load;         /* Previously reported load (in percent * PRECISION). */
+};
+
+/* Initialize load structure. */
+static void init_load(struct load *state)
+{
+    memset(state, 0, sizeof(struct load));
+}
+
+/* Compute a load, in percent * PRECISION. We nicely handle the case where the
+ * load is negative or superior to 100%, in which case we return 0. This
+ * happens when the profiler is reset between two measurements (e.g. player
+ * exit & relaunched). Also, we handle div by zero, just in case. We update the
+ * previous values, too. No statics allowed here. */
+static unsigned compute_load(struct load *state, unsigned long time, unsigned long val)
+{
+    unsigned load;
+    unsigned long delta_time = time - state->prev_time;
+    long delta = (long)val - (long)state->prev_val;
+
+    if (delta < 0 || delta > delta_time || !delta_time)
+        load = 0;
+
+    else
+        load = 100 * PRECISION * delta / delta_time;
+
+    state->prev_val = val;
+    state->prev_time = time;
+    return load;
+}
+
+/* Compute IVA load from KPI profiler, in percent * PRECISION. TODO: Better
+ * integration into the KPI profiler. No need to protect the load "reading" as
+ * we atomically read a single value. IVA time is measured with the 32k timer. */
+static unsigned compute_iva_load(struct load *iva_state)
+{
+    extern unsigned long get_ivahd_t_tot(void);
+    extern unsigned long get_32k(void);
+    unsigned long ivahd_t_tot = get_ivahd_t_tot(), time = get_32k();
+    return compute_load(iva_state, time, ivahd_t_tot);
+}
+
+/* Compute core load from KPI profiler, in percent * PRECISION. TODO: Better
+ * integration into the KPI profiler. We protect the load "reading" for sanity
+ * of the value. Core load is measured with the CTM timer (one per core). No
+ * static allowed in this one, as we are called once per core. */
+static unsigned compute_core_load(struct load *core_state, unsigned core, GateAll_Handle gate)
+{
+    extern unsigned long get_time_core(int core);
+    extern unsigned long get_core_total(unsigned core);
+    unsigned long time = get_time_core(core), core_total;
+    IArg key;
+
+    /* CRITICAL SECTION */
+    key = GateAll_enter(gate);
+    core_total = get_core_total(core);
+    GateAll_leave(gate, key);
+
+    return compute_load(core_state, time, core_total);
+}
+
+/* Trace a load if delta is above threshold. We update the previous value if
+ * reported. We await the load in percent * PRECISION. */
+static void trace_load_if_above(struct load *state, unsigned load, const char *name)
+{
+    unsigned delta;
+
+    /* Trace if changed and delta above threshold. */
+    delta = abs((int)load - (int)state->prev_load);
+
+    if (delta > THRESHOLD) {
+        unsigned integ = load / PRECISION, frac = load - integ * PRECISION;
+        System_printf("loadTask: %s load = %u.%02u%%\n", name, integ, frac);
+        state->prev_load = load;
+    }
+}
 
 /* Monitor load and trace any change. */
 static Void loadTaskFxn(UArg arg0, UArg arg1)
 {
-    UInt32 prev_load = 0;
+    GateAll_Handle gate;
+    struct load bios_state, iva_state, core0_state, core1_state;
 
     /* Suppress warnings. */
     (void)arg0;
     (void)arg1;
+
+    /* Init load state structures. */
+    init_load(&bios_state);
+    init_load(&iva_state);
+    init_load(&core0_state);
+    init_load(&core1_state);
+
+    /* Prepare our Gate. */
+    gate = GateAll_create(NULL, NULL);
 
     System_printf(
         "loadTask: started\n"
@@ -83,21 +183,28 @@ static Void loadTaskFxn(UArg arg0, UArg arg1)
         Load_windowInMs
     );
 
-    /* Infinite loop to trace load. */
+    /* Infinite loop to trace loads. */
     for (;;) {
-        UInt32 load;
-        unsigned delta;
+        unsigned bios_load, iva_load, core0_load, core1_load;
 
-        /* Get load. */
-        load = Load_getCPULoad();
+        /* Get BIOS load and trace if delta above threshold.  Note: we "waste"
+         * the state structure a bit as we do not use the time fields, and we
+         * "waste" the PRECISION, too, but that gives us regularity in the
+         * code. */
+        bios_load = (unsigned)Load_getCPULoad() * PRECISION;
+        trace_load_if_above(&bios_state, bios_load, "BIOS");
 
-        /* Trace if changed and delta above threshold. */
-        delta = abs((int)load - (int)prev_load);
+        /* Get IVA load, cores loads. "Gating" is done inside each core load
+         * computation, and preemption can happen between them. We trace the
+         * loads if delta is above threshold. */
+        iva_load = compute_iva_load(&iva_state);
+        trace_load_if_above(&iva_state, iva_load, "IVA");
 
-        if (delta > THRESHOLD) {
-            System_printf("loadTask: cpu load = %u%%\n", load);
-            prev_load = load;
-        }
+        core0_load = compute_core_load(&core0_state, 0, gate);
+        trace_load_if_above(&core0_state, core0_load, "core0");
+
+        core1_load = compute_core_load(&core1_state, 1, gate);
+        trace_load_if_above(&core1_state, core1_load, "core1");
 
         /* Delay. */
         Task_sleep(SLEEP_TICKS);
