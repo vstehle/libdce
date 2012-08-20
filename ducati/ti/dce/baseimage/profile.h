@@ -29,22 +29,22 @@
 #endif /*BUILD_PSI_KPI*/
 
 
-#include "omx_types.h"
-#include "omx_core.h"
-#include "omx_component.h"
+//#include "omx_types.h"
+//#include "omx_core.h"
+//#include "omx_component.h"
 
 #define IVA_DETAILS             /* for tracing IVA events */
-#define OMX_DETAILS             /* for tracing OMX events */
+//#define OMX_DETAILS             /* for tracing OMX events */
 #define PHYSICAL_BUFFER         /* print physical buffer address for OMX events */
 #define CPU_LOAD_DETAILS        /* for tracing CPU IDLE % each frame */
 //#define CINIT_ENABLE_DUCATI_LOAD  /* measure starts when codec is created */
-#define OMX_ENABLE_DUCATI_LOAD  /* measure starts when OMX component is created */
+//#define OMX_ENABLE_DUCATI_LOAD  /* measure starts when OMX component is created */
 
 /* Instrumentation Flags control */
 typedef enum {
     KPI_END_SUMMARY = (1 << 0),  /* print IVA and Ducati/Benelli summary at end of use case */
     KPI_IVA_DETAILS = (1 << 1),  /* print IVA trace during the use case */
-    KPI_OMX_DETAILS = (1 << 2),  /* print OMX trace during the use case */
+//    KPI_OMX_DETAILS = (1 << 2),  /* print OMX trace during the use case */
     KPI_CPU_DETAILS = (1 << 3)   /* print Idle trace during the use case */
 } KPI_inst_type;
 
@@ -54,7 +54,7 @@ typedef enum {
     KPI_CPU_LOAD  = (1 << 1),    /* ducati/benelly load on */
     KPI_IVA_LOAD  = (1 << 2),    /* IVA load on */
     KPI_IVA_TRACE = (1 << 3),    /* IVA trace is active */
-    KPI_OMX_TRACE = (1 << 4),    /* OMX trace is active */
+//    KPI_OMX_TRACE = (1 << 4),    /* OMX trace is active */
     KPI_CPU_TRACE = (1 << 5),    /* CPU trace is active */
     KPI_IVA_USED  = (1 << 6)     /* IVA used in the test */
 } KPI_inst_status;
@@ -65,12 +65,12 @@ extern void kpi_instDeinit      (void);
 extern void kpi_before_codec    (void);
 extern void kpi_after_codec     (void);
 
-extern void kpi_omx_comp_init   (OMX_HANDLETYPE hComponent);
-extern void kpi_omx_comp_deinit (OMX_HANDLETYPE hComponent);
-extern void kpi_omx_comp_FTB    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
-extern void kpi_omx_comp_ETB    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
-extern void kpi_omx_comp_FBD    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
-extern void kpi_omx_comp_EBD    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
+//extern void kpi_omx_comp_init   (OMX_HANDLETYPE hComponent);
+//extern void kpi_omx_comp_deinit (OMX_HANDLETYPE hComponent);
+//extern void kpi_omx_comp_FTB    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
+//extern void kpi_omx_comp_ETB    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
+//extern void kpi_omx_comp_FBD    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
+//extern void kpi_omx_comp_EBD    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
 
 #endif /*_PROFILE_H*/
 

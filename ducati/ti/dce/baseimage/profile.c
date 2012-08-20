@@ -20,11 +20,23 @@
 *  @rev 1.0
 */
 
+// Hacks for integration into DCE.
+#include <stdio.h>
+#include <xdc/runtime/System.h>
+#define BUILD_FOR_OMAP5
+#define BUILD_FOR_SMP
+#define TIMM_OSAL_TRACEGRP_SYSTEM 0
+#define TIMM_OSAL_ErrorExt PSI_TracePrintf
+typedef int TIMM_OSAL_TRACEGRP;
+typedef char TIMM_OSAL_CHAR;
+typedef unsigned char OMX_U8;
+typedef unsigned long OMX_U32;
+
 /* PSI_KPI profiler */
 #include "profile.h"
 
-#include "timm_osal_trace.h"
-#include "timm_osal_mutex.h"
+//#include "timm_osal_trace.h"
+//#include "timm_osal_mutex.h"
 
 #include <string.h>
 #include <xdc/std.h>
@@ -324,10 +336,10 @@ void kpi_instInit( void )
   }
 
   /* OMX trace setup */
-  if( kpi_control & KPI_OMX_DETAILS )
-  {
-    kpi_status |= KPI_OMX_TRACE;
-  }
+//  if( kpi_control & KPI_OMX_DETAILS )
+//  {
+//    kpi_status |= KPI_OMX_TRACE;
+//  }
 
   /* Mark as running */
   kpi_status |= KPI_INST_RUN;
@@ -636,17 +648,17 @@ void kpi_IVA_profiler_print(void)
  * Structure maintenaing data for Ducati OMX traces
  *
  ***************************************************************/
-typedef struct {
-	OMX_HANDLETYPE hComponent;
-	OMX_U32 count_ftb;
-	OMX_U32 count_fbd;
-	OMX_U32 count_etb;
-	OMX_U32 count_ebd;
-	char    name[50];
-} psi_omx_component;
+//typedef struct {
+//	OMX_HANDLETYPE hComponent;
+//	OMX_U32 count_ftb;
+//	OMX_U32 count_fbd;
+//	OMX_U32 count_etb;
+//	OMX_U32 count_ebd;
+//	char    name[50];
+//} psi_omx_component;
 
 /* we trace up to MAX_OMX_COMP components */
-#define MAX_OMX_COMP 8
+//#define MAX_OMX_COMP 8
 
 /***************************************************************
  * kpi_omx_monitor
@@ -654,8 +666,8 @@ typedef struct {
  * Contains up to 8 components data
  *
  ***************************************************************/
-psi_omx_component kpi_omx_monitor[MAX_OMX_COMP]; /* we trace up to MAX_OMX_COMP components */
-OMX_U32 kpi_omx_monitor_cnt=0;                   /* no component yet */
+//psi_omx_component kpi_omx_monitor[MAX_OMX_COMP]; /* we trace up to MAX_OMX_COMP components */
+//OMX_U32 kpi_omx_monitor_cnt=0;                   /* no component yet */
 
 
 /***************************************************************
@@ -668,65 +680,65 @@ OMX_U32 kpi_omx_monitor_cnt=0;                   /* no component yet */
  * @return: none
  *
  ***************************************************************/
-void kpi_omx_comp_init( OMX_HANDLETYPE hComponent )
-{
-
-  OMX_VERSIONTYPE nVersionComp;
-  OMX_VERSIONTYPE nVersionSpec;
-  OMX_UUIDTYPE    compUUID;
-  char compName[OMX_MAX_STRINGNAME_SIZE];
-  char* p;
-  OMX_U32 omx_cnt;
-
-#ifdef  OMX_ENABLE_DUCATI_LOAD
-  /* Started 1st time */
-  if( !(kpi_status & KPI_INST_RUN) )
-    kpi_instInit();
-#endif//OMX_ENABLE_DUCATI_LOAD
-
-  if( kpi_status & KPI_OMX_TRACE )
-  {
-
-    /* First init: clear kpi_omx_monitor components */
-    if( kpi_omx_monitor_cnt == 0) {
-      for (omx_cnt=0; omx_cnt < MAX_OMX_COMP; omx_cnt++) {
-         /*clear handler registery */
-         kpi_omx_monitor[omx_cnt].hComponent = 0;
-      }
-    }
-
-    /* identify the 1st component free in the table (maybe one was removed previously) */
-    for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
-       if( kpi_omx_monitor[omx_cnt].hComponent == 0 ) break;
-    }
-
-    if( omx_cnt >= MAX_OMX_COMP ) return;
-
-    /* current comp num and update */
-    kpi_omx_monitor_cnt++;
-
-    /* register the component handle */
-    kpi_omx_monitor[omx_cnt].hComponent = hComponent;
-
-    /* reset event counts */
-    kpi_omx_monitor[omx_cnt].count_ftb = 0;
-    kpi_omx_monitor[omx_cnt].count_fbd = 0;
-    kpi_omx_monitor[omx_cnt].count_etb = 0;
-    kpi_omx_monitor[omx_cnt].count_ebd = 0;
-
-    /* register the component name */
-    ((OMX_COMPONENTTYPE*) hComponent)->GetComponentVersion(hComponent, compName, &nVersionComp, &nVersionSpec, &compUUID);
-    /* get the end of the string compName... */
-    p = compName + strlen( compName ) - 1;
-    if (strlen( compName ) >= 40) p = compName + 40 - 1;          // Fix for very long names
-    while( (*p != '.' ) && (p != compName) ) p--;                 // Find last "."
-    strncpy( kpi_omx_monitor[omx_cnt].name, p + 1, 6 );           // keep 6 last chars after "."
-    /* trace component init */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-8s Init %-8lu \n", kpi_omx_monitor[omx_cnt].name, get_32k() );
-
-  }
-
-}
+//void kpi_omx_comp_init( OMX_HANDLETYPE hComponent )
+//{
+//
+//  OMX_VERSIONTYPE nVersionComp;
+//  OMX_VERSIONTYPE nVersionSpec;
+//  OMX_UUIDTYPE    compUUID;
+//  char compName[OMX_MAX_STRINGNAME_SIZE];
+//  char* p;
+//  OMX_U32 omx_cnt;
+//
+//#ifdef  OMX_ENABLE_DUCATI_LOAD
+//  /* Started 1st time */
+//  if( !(kpi_status & KPI_INST_RUN) )
+//    kpi_instInit();
+//#endif//OMX_ENABLE_DUCATI_LOAD
+//
+//  if( kpi_status & KPI_OMX_TRACE )
+//  {
+//
+//    /* First init: clear kpi_omx_monitor components */
+//    if( kpi_omx_monitor_cnt == 0) {
+//      for (omx_cnt=0; omx_cnt < MAX_OMX_COMP; omx_cnt++) {
+//         /*clear handler registery */
+//         kpi_omx_monitor[omx_cnt].hComponent = 0;
+//      }
+//    }
+//
+//    /* identify the 1st component free in the table (maybe one was removed previously) */
+//    for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
+//       if( kpi_omx_monitor[omx_cnt].hComponent == 0 ) break;
+//    }
+//
+//    if( omx_cnt >= MAX_OMX_COMP ) return;
+//
+//    /* current comp num and update */
+//    kpi_omx_monitor_cnt++;
+//
+//    /* register the component handle */
+//    kpi_omx_monitor[omx_cnt].hComponent = hComponent;
+//
+//    /* reset event counts */
+//    kpi_omx_monitor[omx_cnt].count_ftb = 0;
+//    kpi_omx_monitor[omx_cnt].count_fbd = 0;
+//    kpi_omx_monitor[omx_cnt].count_etb = 0;
+//    kpi_omx_monitor[omx_cnt].count_ebd = 0;
+//
+//    /* register the component name */
+//    ((OMX_COMPONENTTYPE*) hComponent)->GetComponentVersion(hComponent, compName, &nVersionComp, &nVersionSpec, &compUUID);
+//    /* get the end of the string compName... */
+//    p = compName + strlen( compName ) - 1;
+//    if (strlen( compName ) >= 40) p = compName + 40 - 1;          // Fix for very long names
+//    while( (*p != '.' ) && (p != compName) ) p--;                 // Find last "."
+//    strncpy( kpi_omx_monitor[omx_cnt].name, p + 1, 6 );           // keep 6 last chars after "."
+//    /* trace component init */
+//    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-8s Init %-8lu \n", kpi_omx_monitor[omx_cnt].name, get_32k() );
+//
+//  }
+//
+//}
 
 /***************************************************************
  * kpi_omx_comp_deinit
@@ -738,31 +750,31 @@ void kpi_omx_comp_init( OMX_HANDLETYPE hComponent )
  * @return: none
  *
  ***************************************************************/
-void kpi_omx_comp_deinit( OMX_HANDLETYPE hComponent )
-{
-
-  OMX_U32 omx_cnt;
-
-  if( kpi_omx_monitor_cnt > 0)
-  {
-    /* identify the component from the registery */
-    for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
-      if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
-    }
-
-    /* trace component deinit */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-6s Deinit %-8lu\n", kpi_omx_monitor[omx_cnt].name, get_32k() );
-
-    /* unregister the component */
-    kpi_omx_monitor[omx_cnt].hComponent = 0;
-
-    kpi_omx_monitor_cnt--;
-  }
-
-  /* stop the instrumentation */
-  kpi_instDeinit();
-
-}
+//void kpi_omx_comp_deinit( OMX_HANDLETYPE hComponent )
+//{
+//
+//  OMX_U32 omx_cnt;
+//
+//  if( kpi_omx_monitor_cnt > 0)
+//  {
+//    /* identify the component from the registery */
+//    for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
+//      if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
+//    }
+//
+//    /* trace component deinit */
+//    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-6s Deinit %-8lu\n", kpi_omx_monitor[omx_cnt].name, get_32k() );
+//
+//    /* unregister the component */
+//    kpi_omx_monitor[omx_cnt].hComponent = 0;
+//
+//    kpi_omx_monitor_cnt--;
+//  }
+//
+//  /* stop the instrumentation */
+//  kpi_instDeinit();
+//
+//}
 
 /***************************************************************
  * kpi_omx_comp_FTB
@@ -775,31 +787,31 @@ void kpi_omx_comp_deinit( OMX_HANDLETYPE hComponent )
  * @return: none
  *
  ***************************************************************/
-void kpi_omx_comp_FTB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
-{
-#ifdef  OMX_DETAILS
-  OMX_U32 omx_cnt;
-
-  if( kpi_omx_monitor_cnt == 0) return;
-
-  /* identify the component from the registery */
-  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
-    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
-  }
-
-  /* Update counts and trace the event */
-  if( omx_cnt < MAX_OMX_COMP ) {
-    /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FTB %-6s %-4u %-8lu x%-8x\n",
-#ifdef PHYSICAL_BUFFER
-    kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ftb, get_32k(), pBuffer->pBuffer );
-#else
-    kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ftb, get_32k(), pBuffer );
-#endif
-  }
-#endif//OMX_DETAILS
-
-}
+//void kpi_omx_comp_FTB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
+//{
+//#ifdef  OMX_DETAILS
+//  OMX_U32 omx_cnt;
+//
+//  if( kpi_omx_monitor_cnt == 0) return;
+//
+//  /* identify the component from the registery */
+//  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
+//    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
+//  }
+//
+//  /* Update counts and trace the event */
+//  if( omx_cnt < MAX_OMX_COMP ) {
+//    /* trace the event */
+//    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FTB %-6s %-4u %-8lu x%-8x\n",
+//#ifdef PHYSICAL_BUFFER
+//    kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ftb, get_32k(), pBuffer->pBuffer );
+//#else
+//    kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ftb, get_32k(), pBuffer );
+//#endif
+//  }
+//#endif//OMX_DETAILS
+//
+//}
 
 /***************************************************************
  * kpi_omx_comp_FBD
@@ -812,41 +824,41 @@ void kpi_omx_comp_FTB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
  * @return: none
  *
  ***************************************************************/
-void kpi_omx_comp_FBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
-{
-#ifdef  OMX_DETAILS
-  OMX_U32 omx_cnt;
-  unsigned long time;
-
-#ifdef  CPU_LOAD_DETAILS
-  if( (kpi_status & KPI_CPU_TRACE) && !(kpi_status & KPI_IVA_USED) )
-  {
-    psi_cpu_load_details();   /* trace the Idle here unless already traced at IVA BEG time */
-  }
-#endif//CPU_LOAD_DETAILS
-
-  if( kpi_omx_monitor_cnt == 0) return;
-
-  time = get_32k();
-
-  /* identify the component from the registery */
-  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
-    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
-  }
-
-  /* Update counts and trace the event */
-  if( omx_cnt < MAX_OMX_COMP ) {
-    /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FBD %-6s %-4u %-8lu x%-8x\n",
-#ifdef PHYSICAL_BUFFER
-      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_fbd, time, pBuffer->pBuffer );
-#else
-      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_fbd, time, pBuffer );
-#endif
-  }
-#endif//OMX_DETAILS
-
-}
+//void kpi_omx_comp_FBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
+//{
+//#ifdef  OMX_DETAILS
+//  OMX_U32 omx_cnt;
+//  unsigned long time;
+//
+//#ifdef  CPU_LOAD_DETAILS
+//  if( (kpi_status & KPI_CPU_TRACE) && !(kpi_status & KPI_IVA_USED) )
+//  {
+//    psi_cpu_load_details();   /* trace the Idle here unless already traced at IVA BEG time */
+//  }
+//#endif//CPU_LOAD_DETAILS
+//
+//  if( kpi_omx_monitor_cnt == 0) return;
+//
+//  time = get_32k();
+//
+//  /* identify the component from the registery */
+//  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
+//    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
+//  }
+//
+//  /* Update counts and trace the event */
+//  if( omx_cnt < MAX_OMX_COMP ) {
+//    /* trace the event */
+//    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FBD %-6s %-4u %-8lu x%-8x\n",
+//#ifdef PHYSICAL_BUFFER
+//      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_fbd, time, pBuffer->pBuffer );
+//#else
+//      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_fbd, time, pBuffer );
+//#endif
+//  }
+//#endif//OMX_DETAILS
+//
+//}
 
 /***************************************************************
  * kpi_omx_comp_ETB
@@ -859,31 +871,31 @@ void kpi_omx_comp_FBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
  * @return: none
  *
  ***************************************************************/
-void kpi_omx_comp_ETB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
-{
-#ifdef  OMX_DETAILS
-  OMX_U32 omx_cnt;
-
-  if( kpi_omx_monitor_cnt == 0) return;
-
-  /* identify the component from the registery */
-  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
-    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
-  }
-
-  /* Update counts and trace the event */
-  if( omx_cnt < MAX_OMX_COMP ) {
-    /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "ETB %-6s %-4u %-8lu x%-8x\n",
-#ifdef PHYSICAL_BUFFER
-      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_etb, get_32k(), pBuffer->pBuffer );
-#else
-      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_etb, get_32k(), pBuffer );
-#endif
-  }
-#endif//OMX_DETAILS
-
-}
+//void kpi_omx_comp_ETB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
+//{
+//#ifdef  OMX_DETAILS
+//  OMX_U32 omx_cnt;
+//
+//  if( kpi_omx_monitor_cnt == 0) return;
+//
+//  /* identify the component from the registery */
+//  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
+//    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
+//  }
+//
+//  /* Update counts and trace the event */
+//  if( omx_cnt < MAX_OMX_COMP ) {
+//    /* trace the event */
+//    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "ETB %-6s %-4u %-8lu x%-8x\n",
+//#ifdef PHYSICAL_BUFFER
+//      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_etb, get_32k(), pBuffer->pBuffer );
+//#else
+//      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_etb, get_32k(), pBuffer );
+//#endif
+//  }
+//#endif//OMX_DETAILS
+//
+//}
 
 /***************************************************************
  * kpi_omx_comp_EBD
@@ -896,31 +908,31 @@ void kpi_omx_comp_ETB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
  * @return: none
  *
  ***************************************************************/
-void kpi_omx_comp_EBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
-{
-#ifdef  OMX_DETAILS
-  OMX_U32 omx_cnt;
-
-  if( kpi_omx_monitor_cnt == 0) return;
-
-  /* identify the component from the registery */
-  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
-    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
-  }
-
-  /* Update counts and trace the event */
-  if( omx_cnt < MAX_OMX_COMP ) {
-    /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "EBD %-6s %-4u %-8lu x%-8x\n",
-#ifdef PHYSICAL_BUFFER
-      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ebd, get_32k(), pBuffer->pBuffer );
-#else
-      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ebd, get_32k(), pBuffer );
-#endif
-  }
-#endif//OMX_DETAILS
-
-}
+//void kpi_omx_comp_EBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer )
+//{
+//#ifdef  OMX_DETAILS
+//  OMX_U32 omx_cnt;
+//
+//  if( kpi_omx_monitor_cnt == 0) return;
+//
+//  /* identify the component from the registery */
+//  for( omx_cnt=0; omx_cnt < MAX_OMX_COMP;  omx_cnt++ ) {
+//    if( kpi_omx_monitor[omx_cnt].hComponent == hComponent ) break;
+//  }
+//
+//  /* Update counts and trace the event */
+//  if( omx_cnt < MAX_OMX_COMP ) {
+//    /* trace the event */
+//    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "EBD %-6s %-4u %-8lu x%-8x\n",
+//#ifdef PHYSICAL_BUFFER
+//      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ebd, get_32k(), pBuffer->pBuffer );
+//#else
+//      kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ebd, get_32k(), pBuffer );
+//#endif
+//  }
+//#endif//OMX_DETAILS
+//
+//}
 
 /***************************************************************
  * kpi_load_pct_x_100
