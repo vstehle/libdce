@@ -20,11 +20,25 @@
 *  @rev 1.0
 */
 
+// Hacks for integration into DCE.
+#include <stdio.h>
+#include <xdc/runtime/System.h>
+#define BUILD_FOR_OMAP5
+#define BUILD_FOR_SMP
+#define TIMM_OSAL_TRACEGRP_SYSTEM 0
+#define TIMM_OSAL_ErrorExt PSI_TracePrintf
+typedef int TIMM_OSAL_TRACEGRP;
+typedef char TIMM_OSAL_CHAR;
+typedef unsigned char OMX_U8;
+typedef unsigned long OMX_U32;
+
 /* PSI_KPI profiler */
 #include "profile.h"
 
+#if 0
 #include "timm_osal_trace.h"
 #include "timm_osal_mutex.h"
+#endif
 
 #include <string.h>
 #include <xdc/std.h>
@@ -41,7 +55,7 @@
 #endif//BUILD_FOR_SMP
 #include <ti/sysbios/family/arm/ducati/TimestampProvider.h>
 #include <ti/pm/IpcPower.h>
-#include <WTSD_DucatiMMSW/framework/tools_library/inc/tools_time.h>
+//#include <WTSD_DucatiMMSW/framework/tools_library/inc/tools_time.h>
 
 
 /* private function prototypes */
@@ -175,7 +189,13 @@ unsigned long Core_getCoreId( void )
  ***************************************************************/
 unsigned long get_32k(void)
 {
-  return ( Tools_Time_get32k() );
+//  return ( Tools_Time_get32k() );
+
+#ifdef  BUILD_FOR_OMAP5
+  return *((volatile OMX_U32 *)0xAAE04030);
+#else /*BUILD_FOR_OMAP5*/
+  return *((volatile OMX_U32 *)0xAA304010);
+#endif/*BUILD_FOR_OMAP5*/
 }
 
 /***************************************************************
@@ -361,11 +381,13 @@ void kpi_instInit( void )
       kpi_status |= KPI_CPU_TRACE;
   }
 
+#if 0
   /* OMX trace setup */
   if( kpi_control & KPI_OMX_DETAILS )
   {
     kpi_status |= KPI_OMX_TRACE;
   }
+#endif
 
   /* Mark as running */
   kpi_status |= KPI_INST_RUN;
@@ -662,6 +684,7 @@ void kpi_IVA_profiler_print(void)
 }
 
 
+#if 0
 /***************************/
 /* OMX FillThisBuffer      */
 /*     EmptyThisBuffer     */
@@ -962,6 +985,7 @@ void kpi_omx_comp_EBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
 #endif//OMX_DETAILS
 
 }
+#endif
 
 
 /***************************************************************
