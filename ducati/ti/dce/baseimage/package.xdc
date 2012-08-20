@@ -34,6 +34,7 @@
  *
  */
 requires ti.dce;
+requires ti.sysbios.gates;
 
 
 /*!
