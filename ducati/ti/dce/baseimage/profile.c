@@ -20,11 +20,24 @@
 *  @rev 1.0
 */
 
+// Hacks for integration into DCE.
+#include <stdio.h>
+#include <xdc/runtime/System.h>
+#define BUILD_FOR_SMP
+#define TIMM_OSAL_TRACEGRP_SYSTEM 0
+#define TIMM_OSAL_ErrorExt PSI_TracePrintf
+typedef int TIMM_OSAL_TRACEGRP;
+typedef char TIMM_OSAL_CHAR;
+typedef unsigned char OMX_U8;
+typedef unsigned long OMX_U32;
+
 /* PSI_KPI profiler */
 #include "profile.h"
 
+#if 0
 #include "timm_osal_trace.h"
 #include "timm_osal_mutex.h"
+#endif
 
 #include <string.h>
 #include <xdc/std.h>
@@ -41,7 +54,7 @@
 #endif//BUILD_FOR_SMP
 #include <ti/sysbios/family/arm/ducati/TimestampProvider.h>
 #include <ti/pm/IpcPower.h>
-#include <WTSD_DucatiMMSW/framework/tools_library/inc/tools_time.h>
+//#include <WTSD_DucatiMMSW/framework/tools_library/inc/tools_time.h>
 
 
 /* private function prototypes */
@@ -146,22 +159,45 @@ psi_bios_kpi  bios_kpi[2];           /* CPU data base (2 cores) */
  * Functions
  ***************************************************************/
 
-#ifndef BUILD_FOR_SMP
-/***************************************************************
- * Core_getCoreId
- * -------------------------------------------------------------
- * Temporary function to remove with SMP BIOS
- *
- * @params: none
- *
- * @return: 1 to force CoreId to 1
- *
- ***************************************************************/
-unsigned long Core_getCoreId( void )
+/* Hacks for integration into the DCE image load reporting. */
+unsigned long get_ivahd_t_tot(void)
 {
-  return 1;
+    return iva_kpi.ivahd_t_tot;
 }
-#endif//BUILD_FOR_SMP
+
+/* You'd better protect calls to those with a GateAll_enter/leave, if you want
+ * sane values reported, as the sum computation is not atomic. */
+unsigned long get_core_total(unsigned core)
+{
+    unsigned long total = 0;
+    psi_bios_kpi *core_kpi = &bios_kpi[core];
+    int i;
+
+    for (i = 0; i < core_kpi->nb_tasks; i++)
+        total += core_kpi->tasks[i].total_time;
+
+    /* Subtract idle task time from total. */
+    total -= *(core_kpi->ptr_idle_total);
+
+    for (i = 0; i < core_kpi->nb_swi; i++)
+        total += core_kpi->swi[i].total_time;
+
+    for (i = 0; i < core_kpi->nb_hwi; i++)
+        total += core_kpi->hwi[i].total_time;
+
+    return total;
+}
+
+/*
+ * Functions to determine omap type.
+ * (Default to OMAP4)
+ */
+static uint32_t kpi_chipset_id;
+
+static int is_omap5(void)
+{
+	return ((kpi_chipset_id & 0xf0) == 0x50) ? 1 : 0;
+}
 
 /***************************************************************
  * get_32k
@@ -175,7 +211,10 @@ unsigned long Core_getCoreId( void )
  ***************************************************************/
 unsigned long get_32k(void)
 {
-  return ( Tools_Time_get32k() );
+	if (is_omap5())
+		return *((volatile OMX_U32 *)0xAAE04030);
+	else
+		return *((volatile OMX_U32 *)0xAA304010);
 }
 
 /***************************************************************
@@ -217,7 +256,7 @@ inline unsigned long get_time( void )
  * it can be called when interrupts have been masked
  * and when current core Id is known already (therefore faster)
  ***************************************************************/
-inline unsigned long get_time_core( int core )
+/*inline*/ unsigned long get_time_core( int core )
 #ifdef USE_CTM_TIMER
 {
   Types_Timestamp64 tTicks;
@@ -247,25 +286,24 @@ inline unsigned long get_time_core( int core )
  ***************************************************************/
 void set_WKUPAON(int force_restore)
 {
-#ifdef  BUILD_FOR_OMAP5
-  static unsigned long clktrctrl_01=0;
-  unsigned long reg = *((volatile OMX_U32 *)0xAAE07800);
+	if (is_omap5()) {
+		static unsigned long clktrctrl_01=0;
+		unsigned long reg = *((volatile OMX_U32 *)0xAAE07800);
 
-  /* Force nosleep mode or restore original configuration */
-  if( force_restore == 1 ) {
-    clktrctrl_01 = reg & 0x3;         /* save clktrctrl */
-    reg &= 0xfffffffc;
-    //reg |= 0x2;                     /* force SW_WAKEUP */
-    reg |= 0;                         /* force NO_SLEEP */
-  } else {
-    reg &= 0xfffffffc;
-    reg |= clktrctrl_01;              /* restore bits 01 */
-    clktrctrl_01 = 0;                 /* restore done */
-  }
-  *(OMX_U32 *)0xAAE07800 = reg;
-#endif/*BUILD_FOR_OMAP5*/
+		/* Force nosleep mode or restore original configuration */
+		if( force_restore == 1 ) {
+			clktrctrl_01 = reg & 0x3;         /* save clktrctrl */
+			reg &= 0xfffffffc;
+			//reg |= 0x2;                     /* force SW_WAKEUP */
+			reg |= 0;                         /* force NO_SLEEP */
+		} else {
+			reg &= 0xfffffffc;
+			reg |= clktrctrl_01;              /* restore bits 01 */
+			clktrctrl_01 = 0;                 /* restore done */
+		}
+		*(OMX_U32 *)0xAAE07800 = reg;
+	}
 }
-
 
 /***************************************************************
  * PSI_TracePrintf
@@ -282,7 +320,7 @@ void PSI_TracePrintf(TIMM_OSAL_TRACEGRP eTraceGrp, TIMM_OSAL_CHAR *pcFormat, ...
 //  static TIMM_OSAL_PTR MyMutex = NULL;
   unsigned long tstart = get_time();
   unsigned long key = Task_disable();
-  unsigned long CoreId = Core_getCoreId();
+  unsigned long CoreId = Core_getId();
 
 //  if(!MyMutex) TIMM_OSAL_MutexCreate( &MyMutex );
 //  TIMM_OSAL_MutexObtain(MyMutex, TIMM_OSAL_SUSPEND);
@@ -308,16 +346,21 @@ void PSI_TracePrintf(TIMM_OSAL_TRACEGRP eTraceGrp, TIMM_OSAL_CHAR *pcFormat, ...
  * Function used to do the aquisition of the instrumentation
  * setting. Then initialising the DBs and variables
  *
- * @params: none
+ * @params:
+ *   uint32_t chipset_id : omap_rev, as received from Linux side (0x.*3. for
+ *                         OMAP3, 0x.*4. for OMAP4, 0x.*5. for OMAP5).
  *
  * @return: none
  *
  ***************************************************************/
-void kpi_instInit( void )
+void kpi_instInit(uint32_t chipset_id)
 {
   /* don't change setup when already active */
   if( kpi_status & KPI_INST_RUN )
     return;
+
+  PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "KPI: chipset_id = 0x%x\n", chipset_id);
+  kpi_chipset_id = chipset_id;
 
   /* read control from the memory */
 
@@ -361,11 +404,13 @@ void kpi_instInit( void )
       kpi_status |= KPI_CPU_TRACE;
   }
 
+#if 0
   /* OMX trace setup */
   if( kpi_control & KPI_OMX_DETAILS )
   {
     kpi_status |= KPI_OMX_TRACE;
   }
+#endif
 
   /* Mark as running */
   kpi_status |= KPI_INST_RUN;
@@ -497,19 +542,20 @@ void kpi_IVA_profiler_init(void)
  * -------------------------------------------------------------
  * Function to be called before codec execution.
  *
- * @params: none
+ * @params:
+ *   uint32_t chipset_id : see kpi_instInit()
  *
  * @return: none
  *
  ***************************************************************/
-void kpi_before_codec(void)
+void kpi_before_codec(uint32_t chipset_id)
 {
   unsigned long start, prev, delta;
 
 #ifndef OMX_ENABLE_DUCATI_LOAD
   /* Started 1st time */
   if( !(kpi_status & KPI_INST_RUN) )
-    kpi_instInit();
+    kpi_instInit(chipset_id);
 #endif//OMX_ENABLE_DUCATI_LOAD
 
   if( kpi_status & KPI_IVA_LOAD )
@@ -662,6 +708,7 @@ void kpi_IVA_profiler_print(void)
 }
 
 
+#if 0
 /***************************/
 /* OMX FillThisBuffer      */
 /*     EmptyThisBuffer     */
@@ -962,6 +1009,7 @@ void kpi_omx_comp_EBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
 #endif//OMX_DETAILS
 
 }
+#endif
 
 
 /***************************************************************
@@ -1079,7 +1127,7 @@ void kpi_CPU_profiler_print(void)
   {
     Task_Handle test;
     unsigned long key = Task_disable();
-    core_kpi = &bios_kpi[ Core_getCoreId() ];
+    core_kpi = &bios_kpi[ Core_getId() ];
     test = core_kpi->tasks[0].handle;
     instx1024 = get_time();
     for(i = 0; i < 1024; i++) psi_kpi_task_test( test, test );
@@ -1383,8 +1431,8 @@ void psi_kpi_task_switch(Task_Handle prev, Task_Handle next)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long key    = Hwi_disable();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next, *context;
@@ -1419,7 +1467,7 @@ void psi_kpi_task_switch(Task_Handle prev, Task_Handle next)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1437,8 +1485,8 @@ void psi_kpi_swi_begin(Swi_Handle swi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long key    = Hwi_disable();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next, *context;
@@ -1472,7 +1520,7 @@ void psi_kpi_swi_begin(Swi_Handle swi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1490,8 +1538,8 @@ void psi_kpi_swi_end(Swi_Handle swi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long key    = Hwi_disable();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context;
@@ -1514,7 +1562,7 @@ void psi_kpi_swi_end(Swi_Handle swi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1532,8 +1580,8 @@ void psi_kpi_hwi_begin(Hwi_Handle hwi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long key    = Hwi_disable();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next, *context;
@@ -1567,7 +1615,7 @@ void psi_kpi_hwi_begin(Hwi_Handle hwi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1585,8 +1633,8 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long key    = Hwi_disable();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context;
@@ -1609,7 +1657,7 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1627,8 +1675,8 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
  ***************************************************************/
 void psi_kpi_task_test(Task_Handle prev, Task_Handle next)
 {
-    unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long key    = Hwi_disable();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next;
@@ -1647,7 +1695,7 @@ void psi_kpi_task_test(Task_Handle prev, Task_Handle next)
 
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
 }
 
 
