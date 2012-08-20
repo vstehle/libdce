@@ -68,6 +68,11 @@
 uint32_t dce_debug = 1;
 
 #define MEMORYSTATS_DEBUG
+#define KPI_PROFILER
+
+#ifdef KPI_PROFILER
+# include "baseimage/profile.h"
+#endif
 
 /* AFAIK both TILER and heap are cached on ducati side.. so from wherever a9
  * allocates, we need to deal with cache to avoid coherency issues..
@@ -95,6 +100,11 @@ static VIDENC2_Handle videnc2_create(Engine_Handle engine, String name, VIDENC2_
 static VIDDEC3_Handle viddec3_create(Engine_Handle engine, String name, VIDDEC3_Params *params);
 static int videnc2_reloc(VIDDEC3_Handle handle, uint8_t *ptr, uint32_t len);
 static int viddec3_reloc(VIDDEC3_Handle handle, uint8_t *ptr, uint32_t len);
+
+#ifdef KPI_PROFILER
+/* track codec create/delete usage */
+static int create_count = 0;
+#endif
 
 static struct {
     CreateFxn  create;
@@ -276,6 +286,10 @@ static int engine_close(void *msg)
 
 static int codec_create(void *msg)
 {
+#ifdef KPI_PROFILER
+    extern unsigned long kpi_control;
+#endif
+
 #ifdef MEMORYSTATS_DEBUG
     Memory_Stats stats;
 #endif
@@ -291,6 +305,14 @@ static int codec_create(void *msg)
     dce_clean(sparams);
     DEBUG("<< codec=%08x", rsp->codec);
 
+#ifdef KPI_PROFILER
+    /* We initialize only for the first create. TODO: make it work when other
+     * task can create codecs, too. */
+    if (create_count++ == 0) {
+        kpi_control = KPI_END_SUMMARY /*| KPI_IVA_DETAILS | KPI_CPU_DETAILS*/;
+        kpi_instInit();
+    }
+#endif
 #ifdef MEMORYSTATS_DEBUG
     Memory_getStats(NULL, &stats);
     INFO("Total: %d\tFree: %d\tLargest: %d", stats.totalSize,
@@ -419,8 +441,16 @@ static int codec_process(void *msg)
 
     if (rsp->result == IALG_EOK) {
         ivahd_acquire();
+#ifdef KPI_PROFILER
+        kpi_before_codec();
+#endif
+
         rsp->result = codec_fxns[codec_id].process(
                 (void *)req->codec, in_bufs, out_bufs, in_args, out_args);
+
+#ifdef KPI_PROFILER
+        kpi_after_codec();
+#endif
         ivahd_release();
     } else {
         DEBUG("reloc failed");
@@ -466,6 +496,13 @@ static int codec_delete(void *msg)
     codec_fxns[req->codec_id].delete((void *)req->codec);
     DEBUG("<<");
 
+#ifdef KPI_PROFILER
+    /* We de-initialize only for the last delete. TODO: make it work when other
+     * task can delete codecs, too. */
+    if (--create_count == 0) {
+        kpi_instDeinit();
+    }
+#endif
 #ifdef MEMORYSTATS_DEBUG
     Memory_getStats(NULL, &stats);
     INFO("Total: %d\tFree: %d\tLargest: %d", stats.totalSize,
