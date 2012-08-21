@@ -39,12 +39,18 @@
 #ifdef  BUILD_FOR_SMP
 #include <ti/sysbios/hal/Core.h>
 #endif//BUILD_FOR_SMP
+#include <ti/sysbios/family/arm/ducati/TimestampProvider.h>
+#include <ti/pm/IpcPower.h>
+#include <WTSD_DucatiMMSW/framework/tools_library/inc/tools_time.h>
+
 
 /* private function prototypes */
 void kpi_IVA_profiler_init  (void);
 void kpi_CPU_profiler_init  (void);
 void kpi_IVA_profiler_print (void);
 void kpi_CPU_profiler_print (void);
+void psi_kpi_task_test(Task_Handle prev, Task_Handle next);
+
 
 /***************************************************************
  * psi_tsk_info
@@ -71,7 +77,7 @@ typedef struct {
  *
  ***************************************************************/
 #define CTX_DIRECT_NUM   256
-#define KPI_MAX_NB_TASKS 128
+#define KPI_MAX_NB_TASKS 64
 #define KPI_MAX_NB_SWI   16
 #define KPI_MAX_NB_HWI   16
 #define MAX_NB_IT 32
@@ -80,6 +86,7 @@ typedef struct {
   unsigned long    prev_t32;                      /* Store T32K value of previous task switch */
   unsigned long    total_time;                    /* Total processing time */
   unsigned long    kpi_time;                      /* Total instrumentation processing time */
+  unsigned long    kpi_count;                     /* Number of time instrumentation run */
   unsigned long    nb_switch;                     /* Number of context switches */
 
   psi_context_info tasks[KPI_MAX_NB_TASKS];       /* Tasks info DB */
@@ -92,8 +99,7 @@ typedef struct {
   psi_context_info* context_cache[CTX_DIRECT_NUM];/* pointers to tasks info DB */
 
   void*            context_stack[MAX_NB_IT];      /* to keep handles because of swi hwi */
-  unsigned long    context_types[MAX_NB_IT];      /* to keep type task swi hwi */
-  unsigned long    context_stack_nb;              /* stack fullness */
+  void**           pt_context_stack;              /* stack pointer */
 
   unsigned long   *ptr_idle_total;                /* to access to idle task total directly */
   unsigned long    idle_prev;                     /* total ticks of idle task previously */
@@ -157,7 +163,6 @@ unsigned long Core_getCoreId( void )
 }
 #endif//BUILD_FOR_SMP
 
-
 /***************************************************************
  * get_32k
  * -------------------------------------------------------------
@@ -170,13 +175,8 @@ unsigned long Core_getCoreId( void )
  ***************************************************************/
 unsigned long get_32k(void)
 {
-#ifdef  BUILD_FOR_OMAP5
-  return *((volatile OMX_U32 *)0xAAE04030);
-#else /*BUILD_FOR_OMAP5*/
-  return *((volatile OMX_U32 *)0xAA304010);
-#endif/*BUILD_FOR_OMAP5*/
+  return ( Tools_Time_get32k() );
 }
-
 
 /***************************************************************
  * get_time
@@ -185,17 +185,53 @@ unsigned long get_32k(void)
  *
  * @params: none
  *
- * @return: T32k value
+ * @return: CTM timer value / 4096 (~100KHz)
+ *          or 32K value (slower to read)
  *
  ***************************************************************/
-unsigned long get_time( void )
+inline unsigned long get_time( void )
+#ifdef USE_CTM_TIMER
 {
   Types_Timestamp64 tTicks;
 
-  Timestamp_get64( &tTicks );
+  TimestampProvider_get64( &tTicks );
   return ( (unsigned long) (tTicks.lo >> 12) + (unsigned long) (tTicks.hi << 20) );
 }
+#else/*USE_CTM_TIMER*/
+{
+  return get_32k();
+}
+#endif/*USE_CTM_TIMER*/
 
+/***************************************************************
+ * get_time_core
+ * -------------------------------------------------------------
+ * Left here for test
+ *
+ * @params: int core
+ *
+ * @return: CTM timer value / 4096 (~100KHz)
+ *          or 32K value (slower to read)
+ *
+ * This function is equivalent to get_time().
+ * it can be called when interrupts have been masked
+ * and when current core Id is known already (therefore faster)
+ ***************************************************************/
+inline unsigned long get_time_core( int core )
+#ifdef USE_CTM_TIMER
+{
+  Types_Timestamp64 tTicks;
+
+    tTicks.hi = *(volatile unsigned long *) (0x40000400 + 0x180 + 0xc + (core<<3));
+    tTicks.lo = *(volatile unsigned long *) (0x40000400 + 0x180 + 0x8 + (core<<3));
+
+  return ( (unsigned long) (tTicks.lo >> 12) + (unsigned long) (tTicks.hi << 20) );
+}
+#else /*USE_CTM_TIMER*/
+{
+  return get_32k();
+}
+#endif/*USE_CTM_TIMER*/
 
 /***************************************************************
  * set_WKUPAON
@@ -219,7 +255,7 @@ void set_WKUPAON(int force_restore)
   if( force_restore == 1 ) {
     clktrctrl_01 = reg & 0x3;         /* save clktrctrl */
     reg &= 0xfffffffc;
-//    reg |= 0x2;                       /* force SW_WAKEUP */
+    //reg |= 0x2;                     /* force SW_WAKEUP */
     reg |= 0;                         /* force NO_SLEEP */
   } else {
     reg &= 0xfffffffc;
@@ -244,9 +280,9 @@ void set_WKUPAON(int force_restore)
 void PSI_TracePrintf(TIMM_OSAL_TRACEGRP eTraceGrp, TIMM_OSAL_CHAR *pcFormat, ...)
 {
 //  static TIMM_OSAL_PTR MyMutex = NULL;
-  unsigned long tstart = get_32k();
-  unsigned long CoreId = Core_getCoreId();
+  unsigned long tstart = get_time();
   unsigned long key = Task_disable();
+  unsigned long CoreId = Core_getCoreId();
 
 //  if(!MyMutex) TIMM_OSAL_MutexCreate( &MyMutex );
 //  TIMM_OSAL_MutexObtain(MyMutex, TIMM_OSAL_SUSPEND);
@@ -261,7 +297,7 @@ void PSI_TracePrintf(TIMM_OSAL_TRACEGRP eTraceGrp, TIMM_OSAL_CHAR *pcFormat, ...
   Task_restore(key);
 
   /* count overhead due to tracing when running (phase 1)*/
-  if( kpi_status & KPI_INST_RUN ) bios_kpi[CoreId].trace_time += get_32k()-tstart;
+  if( kpi_status & KPI_INST_RUN ) bios_kpi[CoreId].trace_time += get_time()-tstart;
 
 }
 
@@ -300,8 +336,10 @@ void kpi_instInit( void )
     return;
 
   /* force clktrctrl to no sleep mode (fast 32k access) */
-  set_WKUPAON( 1 );
-//IpcPower_wakeLock();
+  //set_WKUPAON( 1 );
+#ifdef  USE_CTM_TIMER
+  IpcPower_wakeLock();
+#endif/*USE_CTM_TIMER*/
 
   /* IVA load setup */
   if( kpi_control & (KPI_END_SUMMARY | KPI_IVA_DETAILS) )
@@ -334,7 +372,6 @@ void kpi_instInit( void )
 
 }
 
-
 /***************************************************************
  * kpi_instDeinit
  * -------------------------------------------------------------
@@ -361,17 +398,19 @@ void kpi_instDeinit( void )
     iva_summary = kpi_status & KPI_IVA_LOAD;
   }
 
-  /* restore clktrctrl register */
-  set_WKUPAON( 0 );
-//IpcPower_wakeUnlock();
-
   /* now stop everything since measure is completed */
   kpi_status = 0;
 
   /* Print the summarys */
-  PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> Profiler Deinit %-8lu\n", get_32k() );
+  PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "\n<KPI> Profiler Deinit %-8lu\n", get_32k() );
   if (iva_summary) kpi_IVA_profiler_print();
   if (cpu_summary) kpi_CPU_profiler_print();
+
+  /* restore clktrctrl register */
+  //set_WKUPAON( 0 );
+#ifdef  USE_CTM_TIMER
+  IpcPower_wakeUnlock();
+#endif/*USE_CTM_TIMER*/
 
 }
 
@@ -393,7 +432,7 @@ void kpi_instDeinit( void )
  ***************************************************************/
 void psi_cpu_load_details(void)
 {
-  unsigned long time_curr = get_32k();
+  unsigned long time_curr = get_time();
   unsigned long CoreId, time_delta, idle_delta, idle;
   psi_bios_kpi *core_kpi;
   char trace[2][50];
@@ -436,8 +475,6 @@ void kpi_IVA_profiler_init(void)
 {
 
   PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> IVA Profiler Init %-8lu\n", get_32k() );
-
-//  IpcPower_wakeLock();
 
   iva_kpi.ivahd_t_tot       = 0;         /* IVA-HD tot processing time per frame */
   iva_kpi.ivahd_t_max       = 0;         /* IVA-HD max processing time per frame */
@@ -493,10 +530,11 @@ void kpi_before_codec(void)
 #ifdef  IVA_DETAILS
     if( kpi_status & KPI_IVA_TRACE )
     {
-      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "BEG %-6s %-4u %-8lu %d\n",
+      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "BEG %-7s %-4u %-8lu %d\n",
        "IVA", iva_kpi.omx_nb_frames + 1, start, (delta * 100000) / 32768);
     }
 #endif/*IVA_DETAILS*/
+
   }
 
 #ifdef  CPU_LOAD_DETAILS
@@ -506,7 +544,6 @@ void kpi_before_codec(void)
     psi_cpu_load_details();
   }
 #endif//CPU_LOAD_DETAILS
-
 
 }
 
@@ -532,11 +569,12 @@ void kpi_after_codec(void)
 
     /* Process IVA-HD working time */
     processing_time = iva_kpi.after_time - iva_kpi.before_time;
+
 #ifdef  IVA_DETAILS
     if( kpi_status & KPI_IVA_TRACE )
     {
       /* transform 32KHz ticks into ms */
-      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "END %-6s %-4u %-8lu %d\n",
+      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "END %-7s %-4u %-8lu %d\n",
           "IVA", iva_kpi.omx_nb_frames + 1, iva_kpi.after_time, (processing_time * 100000) / 32768);
     }
 #endif/*IVA_DETAILS*/
@@ -559,6 +597,7 @@ void kpi_after_codec(void)
     }
 
     iva_kpi.omx_nb_frames++;
+
   }
 
 }
@@ -721,6 +760,8 @@ void kpi_omx_comp_init( OMX_HANDLETYPE hComponent )
     if (strlen( compName ) >= 40) p = compName + 40 - 1;          // Fix for very long names
     while( (*p != '.' ) && (p != compName) ) p--;                 // Find last "."
     strncpy( kpi_omx_monitor[omx_cnt].name, p + 1, 6 );           // keep 6 last chars after "."
+    *(kpi_omx_monitor[omx_cnt].name + 6) = '\0';                  // complete the chain of char
+    sprintf(kpi_omx_monitor[omx_cnt].name, "%s%d", kpi_omx_monitor[omx_cnt].name, omx_cnt ); // Add index to the name
     /* trace component init */
     PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-8s Init %-8lu \n", kpi_omx_monitor[omx_cnt].name, get_32k() );
 
@@ -751,7 +792,7 @@ void kpi_omx_comp_deinit( OMX_HANDLETYPE hComponent )
     }
 
     /* trace component deinit */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-6s Deinit %-8lu\n", kpi_omx_monitor[omx_cnt].name, get_32k() );
+    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "<KPI> OMX %-7s Deinit %-8lu\n", kpi_omx_monitor[omx_cnt].name, get_32k() );
 
     /* unregister the component */
     kpi_omx_monitor[omx_cnt].hComponent = 0;
@@ -760,7 +801,7 @@ void kpi_omx_comp_deinit( OMX_HANDLETYPE hComponent )
   }
 
   /* stop the instrumentation */
-  kpi_instDeinit();
+  if( kpi_omx_monitor_cnt == 0) kpi_instDeinit();
 
 }
 
@@ -790,7 +831,7 @@ void kpi_omx_comp_FTB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
   /* Update counts and trace the event */
   if( omx_cnt < MAX_OMX_COMP ) {
     /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FTB %-6s %-4u %-8lu x%-8x\n",
+    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FTB %-7s %-4u %-8lu x%-8x\n",
 #ifdef PHYSICAL_BUFFER
     kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ftb, get_32k(), pBuffer->pBuffer );
 #else
@@ -837,7 +878,7 @@ void kpi_omx_comp_FBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
   /* Update counts and trace the event */
   if( omx_cnt < MAX_OMX_COMP ) {
     /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FBD %-6s %-4u %-8lu x%-8x\n",
+    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "FBD %-7s %-4u %-8lu x%-8x\n",
 #ifdef PHYSICAL_BUFFER
       kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_fbd, time, pBuffer->pBuffer );
 #else
@@ -874,7 +915,7 @@ void kpi_omx_comp_ETB( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
   /* Update counts and trace the event */
   if( omx_cnt < MAX_OMX_COMP ) {
     /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "ETB %-6s %-4u %-8lu x%-8x\n",
+    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "ETB %-7s %-4u %-8lu x%-8x\n",
 #ifdef PHYSICAL_BUFFER
       kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_etb, get_32k(), pBuffer->pBuffer );
 #else
@@ -911,7 +952,7 @@ void kpi_omx_comp_EBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
   /* Update counts and trace the event */
   if( omx_cnt < MAX_OMX_COMP ) {
     /* trace the event */
-    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "EBD %-6s %-4u %-8lu x%-8x\n",
+    PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "EBD %-7s %-4u %-8lu x%-8x\n",
 #ifdef PHYSICAL_BUFFER
       kpi_omx_monitor[omx_cnt].name, ++kpi_omx_monitor[omx_cnt].count_ebd, get_32k(), pBuffer->pBuffer );
 #else
@@ -921,6 +962,7 @@ void kpi_omx_comp_EBD( OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE* pBuffer 
 #endif//OMX_DETAILS
 
 }
+
 
 /***************************************************************
  * kpi_load_pct_x_100
@@ -966,9 +1008,9 @@ void kpi_CPU_profiler_init(void)
   {
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
 
-    core_kpi->prev_t32         = get_32k();
     core_kpi->total_time       = 0;
     core_kpi->kpi_time         = 0;
+    core_kpi->kpi_count        = 0;
     core_kpi->nb_switch        = 0;
 
     core_kpi->nb_tasks         = 0;
@@ -977,20 +1019,42 @@ void kpi_CPU_profiler_init(void)
 
     core_kpi->tasks[0].handle  = 0;                             /* for startup set task[0].handle to 0 */
 
+    /* reserve last task slot in DB to others task that wouldn't fit in the DB */
+    core_kpi->tasks[KPI_MAX_NB_TASKS-1].handle = (void*) 0x11000011;
+    core_kpi->tasks[KPI_MAX_NB_TASKS-1].total_time = 0;
+    core_kpi->tasks[KPI_MAX_NB_TASKS-1].nb_switch  = 0;
+    strcpy(core_kpi->tasks[KPI_MAX_NB_TASKS-1].name, "Other tasks");
+    /* reserve last swi slot in DB to others task that wouldn't fit in the DB */
+    core_kpi->swi[KPI_MAX_NB_SWI-1].handle = (void*) 0x22000022;
+    core_kpi->swi[KPI_MAX_NB_SWI-1].total_time = 0;
+    core_kpi->swi[KPI_MAX_NB_SWI-1].nb_switch  = 0;
+    strcpy(core_kpi->swi[KPI_MAX_NB_SWI-1].name, "Other swis");
+    /* reserve last hwi slot in DB to others task that wouldn't fit in the DB */
+    core_kpi->hwi[KPI_MAX_NB_HWI-1].handle = (void*) 0x33000033;
+    core_kpi->hwi[KPI_MAX_NB_HWI-1].total_time = 0;
+    core_kpi->hwi[KPI_MAX_NB_HWI-1].nb_switch  = 0;
+    strcpy(core_kpi->hwi[KPI_MAX_NB_HWI-1].name, "Other hwis");
+
     /* clear the context pointers table */
     for (i=0; i < CTX_DIRECT_NUM; i++) {
      core_kpi->context_cache[i]= &(core_kpi->tasks[0]);	        /* point to the Data Base */
     }
 
-    core_kpi->context_stack[0] = 0;
-    core_kpi->context_stack_nb = 0;
+    core_kpi->context_stack[0] = &(core_kpi->tasks[0]);         /* point to 1st context element */
+    core_kpi->pt_context_stack = &(core_kpi->context_stack[0]); /* stack beginning */
 
     core_kpi->ptr_idle_total   = &(core_kpi->idle_prev);        /* will point later on to idle_total_ticks */
     core_kpi->idle_prev        = 0;
     core_kpi->idle_time_prev   = 0;
 
     core_kpi->trace_time       = 0;
+
   }
+
+  /* set current time into prev_t32 in each data based */
+  bios_kpi[0].prev_t32 = get_time();
+  bios_kpi[1].prev_t32 = bios_kpi[0].prev_t32;
+
 }
 
 /***************************************************************
@@ -1009,31 +1073,69 @@ void kpi_CPU_profiler_print(void)
   unsigned long load, ld00, Idle, CoreId, i;
   psi_bios_kpi *core_kpi;
 
+#ifdef  COST_AFTER
+  unsigned long instx1024;
+  /* calculate instrumentation cost a posteriori */
+  {
+    Task_Handle test;
+    unsigned long key = Task_disable();
+    core_kpi = &bios_kpi[ Core_getCoreId() ];
+    test = core_kpi->tasks[0].handle;
+    instx1024 = get_time();
+    for(i = 0; i < 1024; i++) psi_kpi_task_test( test, test );
+    instx1024 = get_time()-instx1024;
+    Task_restore(key);
+  }
+#endif//COST_AFTER
+
+  /* Print the results for each core */
   for (CoreId = 0; CoreId < 2; CoreId++ ) {
     core_kpi = &bios_kpi[CoreId];
-    if ( core_kpi->total_time ) {
 
+    /* Reconstruct global counts */
+    for (i=0; i < core_kpi->nb_tasks; i++){
+      core_kpi->nb_switch += core_kpi->tasks[i].nb_switch;     /* nb_switch  (nb interrupts + task switchs) */
+      core_kpi->kpi_count += core_kpi->tasks[i].nb_switch;     /* kpi_count (nunber of times the intrumentation run) */
+      core_kpi->total_time+= core_kpi->tasks[i].total_time;    /* total_time (all times measured) */
+    }
+    for (i=0; i < core_kpi->nb_swi; i++) {
+      core_kpi->nb_switch += core_kpi->swi[i].nb_switch;
+      core_kpi->kpi_count += core_kpi->swi[i].nb_switch * 2;   /* 2 runs per interrupts */
+      core_kpi->total_time+= core_kpi->swi[i].total_time;
+    }
+    for (i=0; i < core_kpi->nb_hwi; i++) {
+      core_kpi->nb_switch += core_kpi->hwi[i].nb_switch;
+      core_kpi->kpi_count += core_kpi->hwi[i].nb_switch * 2;   /* 2 runs per interrupts */
+      core_kpi->total_time+= core_kpi->hwi[i].total_time;
+    }
+    /* add cost of measured if stored as a separate task */
+    core_kpi->total_time += core_kpi->kpi_time;
+
+    if ( core_kpi->total_time ) {
+      /* Print global stats */
       PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "----------------------------------\n");
       PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "Core %d :\n", CoreId);
       PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "--------\n");
-      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  type  #: handle   ticks    switch  ( %%cpu )   instance-name\n");
+      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  type  #: handle   ticks    counts  ( %%cpu )   instance-name\n");
       PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "----------------------------------\n");
       PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  Total test        %-8lu %-7ld\n", core_kpi->total_time, core_kpi->nb_switch);
       PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "----------------------------------\n");
 
-      ld00 = kpi_load_pct_x_100(core_kpi->kpi_time, core_kpi->total_time);/* ex. 7833 -> 78.33 % */
-      load = ld00/100;                                                  /* 78.33 % -> 78 */
-      ld00 = ld00 - load*100;                                           /* 78.33 % -> 33 */
-
-      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  Measure: Overhead %-8lu -----   (%2d.%02d %%)  CPU load-inst-cost\n",
-         core_kpi->kpi_time, load, ld00);
+      if( core_kpi->kpi_time )
+      {
+        ld00 = kpi_load_pct_x_100(core_kpi->kpi_time, core_kpi->total_time);/* ex. 7833 -> 78.33 % */
+        load = ld00/100;                                                  /* 78.33 % -> 78 */
+        ld00 = ld00 - load*100;                                           /* 78.33 % -> 33 */
+        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  Measure: Overhead %-8lu ----    (%2d.%02d %%)  CPU load-inst-cost\n",
+          core_kpi->kpi_time, load, ld00);
+      }
 
       for (i=0; i < core_kpi->nb_tasks; i++)
       {
         ld00 = kpi_load_pct_x_100(core_kpi->tasks[i].total_time, core_kpi->total_time);
         load = ld00/100;                                                /* 78.33 % -> 78 */
         ld00 = ld00 - load*100;                                         /* 78.33 % -> 33 */
-        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  task %2d: %-lx %-8lu %-7ld (%2d.%02d %%)  %s\n",
+        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  task %2d: %-8lx %-8lu %-7ld (%2d.%02d %%)  %s\n",
           i, core_kpi->tasks[i].handle, core_kpi->tasks[i].total_time, core_kpi->tasks[i].nb_switch, load, ld00, core_kpi->tasks[i].name);
       }
 
@@ -1042,7 +1144,7 @@ void kpi_CPU_profiler_print(void)
         ld00 = kpi_load_pct_x_100(core_kpi->swi[i].total_time, core_kpi->total_time);
         load = ld00/100;                                                /* 78.33 % -> 78 */
         ld00 = ld00 - load*100;                                         /* 78.33 % -> 33 */
-        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "   swi %2d: %-lx %-8lu %-7ld (%2d.%02d %%)  %s\n",
+        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "   swi %2d: %-8lx %-8lu %-7ld (%2d.%02d %%)  %s\n",
           i, core_kpi->swi[i].handle, core_kpi->swi[i].total_time, core_kpi->swi[i].nb_switch, load, ld00, core_kpi->swi[i].name);
       }
 
@@ -1051,17 +1153,30 @@ void kpi_CPU_profiler_print(void)
         ld00 = kpi_load_pct_x_100(core_kpi->hwi[i].total_time, core_kpi->total_time);
         load = ld00/100;                                                /* 78.33 % -> 78 */
         ld00 = ld00 - load*100;                                         /* 78.33 % -> 33 */
-        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "   hwi %2d: %-lx %-8lu %-7ld (%2d.%02d %%)  %s\n",
+        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "   hwi %2d: %-8lx %-8lu %-7ld (%2d.%02d %%)  %s\n",
           i, core_kpi->hwi[i].handle, core_kpi->hwi[i].total_time, core_kpi->hwi[i].nb_switch, load, ld00, core_kpi->hwi[i].name);
       }
+
+      PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "----------------------------------\n");
+
+#ifdef  COST_AFTER
+      if( !core_kpi->kpi_time )
+      {
+        /* calculate the cost in the instrumentation */
+        core_kpi->kpi_time = (core_kpi->kpi_count * instx1024) / 1024;
+        ld00 = kpi_load_pct_x_100(core_kpi->kpi_time, core_kpi->total_time);/* ex. 7833 -> 78.33 % */
+        load = ld00/100;                                                  /* 78.33 % -> 78 */
+        ld00 = ld00 - load*100;                                           /* 78.33 % -> 33 */
+        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  CPU load measure overhead  %2d.%02d %%\n", load, ld00);
+      }
+#endif//COST_AFTER
 
       if( core_kpi->trace_time )
       {
         ld00 = kpi_load_pct_x_100(core_kpi->trace_time, core_kpi->total_time);
         load = ld00/100;                                                /* 78.33 % -> 78 */
         ld00 = ld00 - load*100;                                         /* 78.33 % -> 33 */
-        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "----------------------------------\n");
-        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  Estimated inst trace cost  %2d.%02d %%\n", load, ld00);
+        PSI_TracePrintf(TIMM_OSAL_TRACEGRP_SYSTEM, "  Real time traces overhead  %2d.%02d %%\n", load, ld00);
       }
 
       /* restore to Idle Inst cost + print cost if idle exists */
@@ -1081,36 +1196,27 @@ void kpi_CPU_profiler_print(void)
 
 }
 
+
 /***************************************************************
- * psi_kpi_search_create_context
+ * psi_kpi_search_create_context_task
  * -------------------------------------------------------------
  * Search for a context entry to context DB.
  * Create a new on if not existing
  *
- * @params: void *task, OMX_U8 type, unsigned int CoreId
+ * @params: void *task, unsigned int CoreId
  *
  * @return: psi_context_info *db_ptr
  *
  ***************************************************************/
-psi_context_info *psi_kpi_search_create_context(void *task, OMX_U8 type, psi_bios_kpi *core_kpi)
+psi_context_info *psi_kpi_search_create_context_task(void *task, psi_bios_kpi *core_kpi)
 {
-  int i, nb_items;
+  int i, nb_items, strLenght;
   String taskName;
   psi_context_info *db_ptr;
 
-  /* assume KPI_CONTEXT_TASK */
+  /* KPI_CONTEXT_TASK */
   nb_items = core_kpi->nb_tasks;
   db_ptr   = core_kpi->tasks;
-  if (type == KPI_CONTEXT_HWI)
-  {
-    nb_items = core_kpi->nb_hwi;
-    db_ptr   = core_kpi->hwi;
-  }
-  if (type == KPI_CONTEXT_SWI)
-  {
-    nb_items = core_kpi->nb_swi;
-    db_ptr   = core_kpi->swi;
-  }
 
   /* Search handle existing in task table */
   for (i=0; i < nb_items; i++) {
@@ -1122,92 +1228,142 @@ psi_context_info *psi_kpi_search_create_context(void *task, OMX_U8 type, psi_bio
     return (&db_ptr[i]);
   }
 
-  /* get the task name */
-  if (type == KPI_CONTEXT_TASK)
-  {
-    taskName = Task_Handle_name((Task_Handle)task);
-    core_kpi->nb_tasks++;
-    if (core_kpi->nb_tasks >= KPI_MAX_NB_TASKS)
-    {
-      TIMM_OSAL_ErrorExt(TIMM_OSAL_TRACEGRP_SYSTEM, "KPI : Max number of tasks reached: %d\n", core_kpi->nb_tasks);
-      core_kpi->nb_tasks--;
-    }
-    if( strstr(taskName, "Idle") )
-      core_kpi->ptr_idle_total = &(db_ptr[nb_items].total_time);
+  /* check for space left in the DB. When last-1 reached use last for others tasks together */
+  if (nb_items >= KPI_MAX_NB_TASKS-1) {
+    core_kpi->nb_tasks = KPI_MAX_NB_TASKS;
+    return (&db_ptr[KPI_MAX_NB_TASKS-1]);
   }
 
-  else if (type == KPI_CONTEXT_HWI)
-  {
-    taskName = Hwi_Handle_name((Hwi_Handle)task);
-    core_kpi->nb_hwi++;
-    if (core_kpi->nb_hwi >= KPI_MAX_NB_HWI)
-    {
-      TIMM_OSAL_ErrorExt(TIMM_OSAL_TRACEGRP_SYSTEM, "KPI : Max number of HWI reached: %d\n", core_kpi->nb_hwi);
-      core_kpi->nb_hwi--;
-    }
-  }
+  /* add the new task */
+  core_kpi->nb_tasks = nb_items+1;
 
-  else if (type == KPI_CONTEXT_SWI)
-  {
-    taskName = Swi_Handle_name((Swi_Handle)task);
-    core_kpi->nb_swi++;
-    if (core_kpi->nb_swi >= KPI_MAX_NB_SWI)
-    {
-      TIMM_OSAL_ErrorExt(TIMM_OSAL_TRACEGRP_SYSTEM, "KPI : Max number of SWI reached: %d\n", core_kpi->nb_swi);
-      core_kpi->nb_swi--;
-    }
-  }
+  /* get the task name Make sure task name fits into the item.name */
+  taskName = Task_Handle_name((Task_Handle)task);
+  strLenght = strlen( taskName );
+  if (strLenght > 40 ) strLenght = 40;
+
+  /* For Idle direct access */
+  if( strstr(taskName, "Idle") )
+    core_kpi->ptr_idle_total = &(db_ptr[i].total_time);
 
   /* create the new entry */
-  db_ptr[nb_items].handle     = task;
-  db_ptr[nb_items].total_time = 0;
-  db_ptr[nb_items].nb_switch  = 0;
-  /* Make sure task name fits into the item.name */
-  i = strlen( taskName );
-  if (i > 40 ) i = 40;
-  strncpy(db_ptr[nb_items].name, taskName, i);
+  db_ptr[i].handle     = task;
+  db_ptr[i].total_time = 0;
+  db_ptr[i].nb_switch  = 0;
+  strncpy(db_ptr[i].name, taskName, strLenght);
+  *(db_ptr[i].name + strLenght) = '\0';                  // complete the chain of char
 
-  return &(db_ptr[nb_items]);
+  return &(db_ptr[i]);
 }
 
 /***************************************************************
- * psi_kpi_handle_context_switch
+ * psi_kpi_search_create_context_swi
  * -------------------------------------------------------------
- * Handle context switch
+ * Search for a context entry to context DB.
+ * Create a new on if not existing
  *
- * @params: void *prev, OMX_U8 prev_type, int tk_switch, psi_bios_kpi *core_kpi, unsigned long tick
+ * @params: void *task, unsigned int CoreId
  *
- * @return: none
+ * @return: psi_context_info *db_ptr
  *
  ***************************************************************/
-void psi_kpi_handle_context_switch(void *prev, OMX_U8 prev_type, int tk_switch, psi_bios_kpi *core_kpi, unsigned long tick)
+psi_context_info *psi_kpi_search_create_context_swi(void *task, psi_bios_kpi *core_kpi)
 {
-    psi_context_info *context;
-    unsigned long cachePtr;
-    unsigned long tick2;
+  int i, nb_items, strLenght;
+  String taskName;
+  psi_context_info *db_ptr;
 
-    /* build a simple 8 bits address with part of the full handler address for trying cache DB search */
-    cachePtr= ((((long) prev)>>4) ^ (((long) prev)>>12) ) & 0xff;
-    context = core_kpi->context_cache[ cachePtr ];
+  /* KPI_CONTEXT_SWI */
+  nb_items = core_kpi->nb_swi;
+  db_ptr   = core_kpi->swi;
 
-    /* due to partial address in prev8bits (core_kpi->ptr_ctx_cache[ prev8bits ]) context may point to an other context */
-    if (context->handle != prev) {                             /* if NOT pointing to our handle make exhaustive seartch */
-      context = psi_kpi_search_create_context(prev, prev_type, core_kpi);
-      core_kpi->context_cache[ cachePtr ] = context;           /* update direct table (this may evict one already here) */
-    }
+  /* Search handle existing in task table */
+  for (i=0; i < nb_items; i++) {
+    if (task == db_ptr[i].handle) break;
+  }
 
-    /* update tasks and global stats */
-    context->total_time  += tick - core_kpi->prev_t32;         /* count the time spend in the ending task */
-    context->nb_switch   +=tk_switch;                          /* count the switch */
-    core_kpi->nb_switch  +=tk_switch;                          /* update global switch count */
+  /* handle found in our DB */
+  if( i < nb_items ) {
+    return (&db_ptr[i]);
+  }
 
-    /* will start processing the task now */
-    tick2 = get_32k();
-    core_kpi->total_time += tick2 - core_kpi->prev_t32;        /* update total time */
-    core_kpi->kpi_time   += tick2 - tick;                      /* update kpi_time (instrumentation cost) */
+  /* check for space left in the DB. When last-1 reached use last for others swi together */
+  if (nb_items >= KPI_MAX_NB_SWI-1) {
+    core_kpi->nb_swi = KPI_MAX_NB_SWI;
+    return (&db_ptr[KPI_MAX_NB_SWI-1]);
+  }
 
-    /* store tick2: time when task actually starts */
-    core_kpi->prev_t32    = tick2;
+  /* add the new swi */
+  core_kpi->nb_swi = nb_items+1;
+
+  /* get the task name Make sure task name fits into the item.name */
+  taskName = Swi_Handle_name((Swi_Handle)task);
+  strLenght = strlen( taskName );
+  if (strLenght > 40 ) strLenght = 40;
+
+  /* create the new entry */
+  db_ptr[i].handle     = task;
+  db_ptr[i].total_time = 0;
+  db_ptr[i].nb_switch  = 0;
+  strncpy(db_ptr[i].name, taskName, strLenght);
+  *(db_ptr[i].name + strLenght) = '\0';                  // complete the chain of char
+
+  return &(db_ptr[i]);
+}
+
+/***************************************************************
+ * psi_kpi_search_create_context_hwi
+ * -------------------------------------------------------------
+ * Search for a context entry to context DB.
+ * Create a new on if not existing
+ *
+ * @params: void *task, unsigned int CoreId
+ *
+ * @return: psi_context_info *db_ptr
+ *
+ ***************************************************************/
+psi_context_info *psi_kpi_search_create_context_hwi(void *task, psi_bios_kpi *core_kpi)
+{
+  int i, nb_items, strLenght;
+  String taskName;
+  psi_context_info *db_ptr;
+
+  /* KPI_CONTEXT_HWI */
+  nb_items = core_kpi->nb_hwi;
+  db_ptr   = core_kpi->hwi;
+
+  /* Search handle existing in task table */
+  for (i=0; i < nb_items; i++) {
+    if (task == db_ptr[i].handle) break;
+  }
+
+  /* handle found in our DB */
+  if( i < nb_items ) {
+    return (&db_ptr[i]);
+  }
+
+  /* check for space left in the DB. When last-1 reached use last for others hwi together */
+  if (nb_items >= KPI_MAX_NB_HWI-1) {
+    core_kpi->nb_hwi = KPI_MAX_NB_HWI;
+    return (&db_ptr[KPI_MAX_NB_HWI-1]);
+  }
+
+  /* add the new hwi */
+  core_kpi->nb_hwi = nb_items+1;
+
+  /* get the task name Make sure task name fits into the item.name */
+  taskName = Hwi_Handle_name((Hwi_Handle)task);
+  strLenght = strlen( taskName );
+  if (strLenght > 40 ) strLenght = 40;
+
+  /* create the new entry */
+  db_ptr[i].handle     = task;
+  db_ptr[i].total_time = 0;
+  db_ptr[i].nb_switch  = 0;
+  strncpy(db_ptr[i].name, taskName, strLenght);
+  *(db_ptr[i].name + strLenght) = '\0';                  // complete the chain of char
+
+  return &(db_ptr[i]);
 }
 
 /***************************************************************
@@ -1227,18 +1383,43 @@ void psi_kpi_task_switch(Task_Handle prev, Task_Handle next)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disable();
-    unsigned long tick   = get_32k();
+    unsigned long key    = Hwi_disableCoreInts();
     unsigned long CoreId = Core_getCoreId();
+    unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
+    psi_context_info *context_next, *context;
+    unsigned long cachePtr;
 
-    /* Maintain stack for interrupts */
-    core_kpi->context_stack[ core_kpi->context_stack_nb ] = next;
-    core_kpi->context_types[ core_kpi->context_stack_nb ] = KPI_CONTEXT_TASK;
+    /* Ending context */
+    context = (psi_context_info *) *core_kpi->pt_context_stack;
 
-    psi_kpi_handle_context_switch( (void *) prev, KPI_CONTEXT_TASK, TRUE, core_kpi, tick ); /* count task switch */
+    /* Starting context */
+    cachePtr= ((((long) next)>>4) ^ (((long) next)>>12) ) & 0xff; /* build a simple 8 bits address for trying cache DB search */
+    context_next = core_kpi->context_cache[ cachePtr ];
+    if (context_next->handle != next) {                           /* if NOT pointing to our handle make exhaustive seartch */
+      context_next = psi_kpi_search_create_context_task(next, core_kpi);
+      core_kpi->context_cache[ cachePtr ] = context_next;         /* update direct table (this may evict one already here) */
+    }
 
-    Hwi_restore(key);
+    /* Maintain stack for interrupts: save context starting */
+    *core_kpi->pt_context_stack = (void*) context_next;
+
+    /* update tasks stats */
+    context->total_time  += tick - core_kpi->prev_t32;            /* count the time spend in the ending task */
+    context->nb_switch   ++;                                      /* count the switch */
+
+#ifdef  INST_COST
+    /* will start processing the task now */
+    {
+      unsigned long tick2 = get_time_core(CoreId);
+      core_kpi->kpi_time += tick2 - tick;                         /* update kpi_time (instrumentation cost) */
+      core_kpi->prev_t32  = tick2;                                /* store tick: time when task actually starts */
+    }
+#else //INST_COST
+    core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
+#endif//INST_COST
+
+    Hwi_restoreCoreInts( key );
   }
 }
 
@@ -1256,23 +1437,42 @@ void psi_kpi_swi_begin(Swi_Handle swi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disable();
-    unsigned long tick   = get_32k();
+    unsigned long key    = Hwi_disableCoreInts();
     unsigned long CoreId = Core_getCoreId();
+    unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
+    psi_context_info *context_next, *context;
+    unsigned long cachePtr;
 
-    /* Going from a TASK or SWI to new SWI */
-    core_kpi->context_stack_nb++;
-    core_kpi->context_stack[ core_kpi->context_stack_nb ] = swi;
-    core_kpi->context_types[ core_kpi->context_stack_nb ] = KPI_CONTEXT_SWI;
+    /* Ending context */
+    context = (psi_context_info *) *core_kpi->pt_context_stack++; /* Going from a TASK or SWI to new SWI */
 
-    psi_kpi_handle_context_switch( core_kpi->context_stack[core_kpi->context_stack_nb-1],
-                                   core_kpi->context_types[core_kpi->context_stack_nb-1],
-                                   FALSE,  /* don't count SWI switch */
-                                   core_kpi,
-                                   tick );
+    /* Starting context */
+    cachePtr= ((((long) swi)>>4) ^ (((long) swi)>>12) ) & 0xff;   /* build a simple 8 bits address for trying cache DB search */
+    context_next = core_kpi->context_cache[ cachePtr ];
+    if (context_next->handle != swi) {                            /* if NOT pointing to our handle make exhaustive seartch */
+      context_next = psi_kpi_search_create_context_swi(swi, core_kpi);
+      core_kpi->context_cache[ cachePtr ] = context_next;         /* update direct table (this may evict one already here) */
+    }
 
-    Hwi_restore(key);
+    /* Maintain stack for interrupts: save context starting */
+    *core_kpi->pt_context_stack = (void*) context_next;
+
+    /* update tasks stats */
+    context->total_time  += tick - core_kpi->prev_t32;            /* count the time spend in the ending task */
+
+#ifdef  INST_COST
+    /* will start processing the task now */
+    {
+      unsigned long tick2 = get_time_core(CoreId);
+      core_kpi->kpi_time += tick2 - tick;                         /* update kpi_time (instrumentation cost) */
+      core_kpi->prev_t32  = tick2;                                /* store tick: time when task actually starts */
+    }
+#else //INST_COST
+    core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
+#endif//INST_COST
+
+    Hwi_restoreCoreInts( key );
   }
 }
 
@@ -1290,20 +1490,31 @@ void psi_kpi_swi_end(Swi_Handle swi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disable();
-    unsigned long tick   = get_32k();
+    unsigned long key    = Hwi_disableCoreInts();
     unsigned long CoreId = Core_getCoreId();
+    unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
+    psi_context_info *context;
 
-    /* Going back to interrupted TASK or SWI */
-    core_kpi->context_stack_nb--;
-    psi_kpi_handle_context_switch( (void *) swi,
-                                   KPI_CONTEXT_SWI,
-                                   TRUE,  /* count SWI switch when completed */
-                                   core_kpi,
-                                   tick );
+    /* Ending context */
+    context = (psi_context_info *) *core_kpi->pt_context_stack--; /* Going back to interrupted TASK or SWI */
 
-    Hwi_restore(key);
+    /* update tasks stats */
+    context->total_time  += tick - core_kpi->prev_t32;            /* count the time spend in the ending task */
+    context->nb_switch   ++;                                      /* count the switch */
+
+#ifdef  INST_COST
+    /* will start processing the task now */
+    {
+      unsigned long tick2 = get_time_core(CoreId);
+      core_kpi->kpi_time += tick2 - tick;                         /* update kpi_time (instrumentation cost) */
+      core_kpi->prev_t32  = tick2;                                /* store tick: time when task actually starts */
+    }
+#else //INST_COST
+    core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
+#endif//INST_COST
+
+    Hwi_restoreCoreInts( key );
   }
 }
 
@@ -1321,23 +1532,42 @@ void psi_kpi_hwi_begin(Hwi_Handle hwi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disable();
-    unsigned long tick   = get_32k();
+    unsigned long key    = Hwi_disableCoreInts();
     unsigned long CoreId = Core_getCoreId();
+    unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
+    psi_context_info *context_next, *context;
+    unsigned long cachePtr;
 
-    /* Going from previous TASK or SWI to a HWI */
-    core_kpi->context_stack_nb++;
-    core_kpi->context_stack[ core_kpi->context_stack_nb ] = hwi;
-    core_kpi->context_types[ core_kpi->context_stack_nb ] = KPI_CONTEXT_HWI;
+    /* Ending context */
+    context = (psi_context_info *) *core_kpi->pt_context_stack++; /* Going from previous TASK or SWI to a HWI */
 
-    psi_kpi_handle_context_switch( core_kpi->context_stack[core_kpi->context_stack_nb-1],
-                                   core_kpi->context_types[core_kpi->context_stack_nb-1],
-                                   FALSE,   /* don't count HWI switch */
-                                   core_kpi,
-                                   tick );
+    /* Starting context */
+    cachePtr= ((((long) hwi)>>4) ^ (((long) hwi)>>12) ) & 0xff;   /* build a simple 8 bits address for trying cache DB search */
+    context_next = core_kpi->context_cache[ cachePtr ];
+    if (context_next->handle != hwi) {                            /* if NOT pointing to our handle make exhaustive seartch */
+      context_next = psi_kpi_search_create_context_hwi(hwi, core_kpi);
+      core_kpi->context_cache[ cachePtr ] = context_next;         /* update direct table (this may evict one already here) */
+    }
 
-    Hwi_restore(key);
+    /* Maintain stack for interrupts: save context starting */
+    *core_kpi->pt_context_stack = (void*) context_next;
+
+    /* update tasks stats */
+    context->total_time  += tick - core_kpi->prev_t32;            /* count the time spend in the ending task */
+
+#ifdef  INST_COST
+    /* will start processing the task now */
+    {
+      unsigned long tick2 = get_time_core(CoreId);
+      core_kpi->kpi_time += tick2 - tick;                         /* update kpi_time (instrumentation cost) */
+      core_kpi->prev_t32  = tick2;                                /* store tick: time when task actually starts */
+    }
+#else //INST_COST
+    core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
+#endif//INST_COST
+
+    Hwi_restoreCoreInts( key );
   }
 }
 
@@ -1355,24 +1585,70 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disable();
-    unsigned long tick   = get_32k();
+    unsigned long key    = Hwi_disableCoreInts();
     unsigned long CoreId = Core_getCoreId();
+    unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
+    psi_context_info *context;
 
-    /* Going back to interrupted TASK or SWI or HWI */
-    core_kpi->context_stack_nb--;
+    /* Ending context */
+    context = (psi_context_info *) *core_kpi->pt_context_stack--; /* Going back to interrupted TASK or SWI or HWI */
 
-    psi_kpi_handle_context_switch( (void *) hwi,
-                                   KPI_CONTEXT_HWI,
-                                   TRUE, /* count HWI switch when completed */
-                                   core_kpi,
-                                   tick );
+    /* update tasks stats */
+    context->total_time  += tick - core_kpi->prev_t32;            /* count the time spend in the ending task */
+    context->nb_switch   ++;                                      /* count the switch */
 
-    Hwi_restore(key);
+#ifdef  INST_COST
+    /* will start processing the task now */
+    {
+      unsigned long tick2 = get_time_core(CoreId);
+      core_kpi->kpi_time += tick2 - tick;                         /* update kpi_time (instrumentation cost) */
+      core_kpi->prev_t32  = tick2;                                /* store tick: time when task actually starts */
+    }
+#else //INST_COST
+    core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
+#endif//INST_COST
+
+    Hwi_restoreCoreInts( key );
   }
 }
 
+/***************************************************************
+ * psi_kpi_task_test
+ * -------------------------------------------------------------
+ * Task switch hook:
+ *  - identify new tasks
+ *  - used for measuring execution time of the instrumentation
+ *
+ * @params: Task_Handle prev, Task_Handle next
+ *
+ * @return: none
+ *
+ ***************************************************************/
+void psi_kpi_task_test(Task_Handle prev, Task_Handle next)
+{
+    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long CoreId = Core_getCoreId();
+    unsigned long tick   = get_time_core(CoreId);
+    psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
+    psi_context_info *context_next;
+    unsigned long cachePtr;
+
+    /* Starting context */
+    cachePtr= ((((long) next)>>4) ^ (((long) next)>>12) ) & 0xff; /* build a simple 8 bits address for trying cache DB search */
+    context_next = core_kpi->context_cache[ cachePtr ];
+    if (context_next->handle != next) {                           /* if NOT pointing to our handle make exhaustive seartch */
+      context_next = psi_kpi_search_create_context_task(next, core_kpi);
+      core_kpi->context_cache[ cachePtr ] = context_next;         /* update direct table (this may evict one already here) */
+    }
+
+    /* Maintain stack for interrupts: save context starting */
+    *core_kpi->pt_context_stack = (void*) context_next;
+
+    core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
+
+    Hwi_restoreCoreInts( key );
+}
 
 
 
