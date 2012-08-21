@@ -40,6 +40,10 @@
 //#define CINIT_ENABLE_DUCATI_LOAD  /* measure starts when codec is created */
 #define OMX_ENABLE_DUCATI_LOAD  /* measure starts when OMX component is created */
 
+#define USE_CTM_TIMER           /* CTM vs 32K for measuring CPU load */
+#define INST_COST               /* measure the instrumentation cost during the test */
+//#define COST_AFTER            /* allows estimating the instrumentation cost after completion */
+
 /* Instrumentation Flags control */
 typedef enum {
     KPI_END_SUMMARY = (1 << 0),  /* print IVA and Ducati/Benelli summary at end of use case */
@@ -71,6 +75,12 @@ extern void kpi_omx_comp_FTB    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE
 extern void kpi_omx_comp_ETB    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
 extern void kpi_omx_comp_FBD    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
 extern void kpi_omx_comp_EBD    (OMX_HANDLETYPE hComponent, OMX_BUFFERHEADERTYPE *pBuffer);
+
+/* use disableCoreInts in SMP: faster and appropriate for us, otherwise is disable (non SMP) */
+#ifndef BUILD_FOR_SMP
+#define  Hwi_disableCoreInts(   ) Hwi_disable(   )
+#define  Hwi_restoreCoreInts( x ) Hwi_restore( x )
+#endif//BUILD_FOR_SMP
 
 #endif /*_PROFILE_H*/
 
