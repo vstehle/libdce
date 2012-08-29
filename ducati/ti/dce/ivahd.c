@@ -133,6 +133,26 @@ static void ivahd_boot(void)
 
     DEBUG("Booting IVAHD...");
 
+    /* Reset IVAHD sequencers and SL2 */
+    RM_IVAHD_RSTCTRL = 0x00000007;
+    sleepms(10);
+
+    /* Turn IVA power state to on */
+    PM_IVAHD_PWRSTCTRL = 0x00000003;
+    sleepms(10);
+
+    /* First put IVA into SW_WKUP mode */
+    CM_IVAHD_CLKSTCTRL = 0x00000002;
+    sleepms(10);
+
+    /* Set IVA clock to 'auto' */
+    CM_IVAHD_CLKCTRL = 0x00000001;
+    sleepms(10);
+
+    /* Set SL2 clock to 'auto' */
+    CM_IVAHD_SL2_CLKCTRL = 0x00000001;
+    sleepms(10);
+
     /* put ICONT1 & ICONT2 in reset and remove SL2 reset */
     RM_IVAHD_RSTCTRL = 0x00000003;
     sleepms(10);
@@ -222,8 +242,7 @@ void ivahd_acquire(void)
     UInt hwiKey = Hwi_disable();
     if (++ivahd_use_cnt == 1) {
         DEBUG("ivahd acquire");
-        /* switch SW_WAKEUP mode */
-        CM_IVAHD_CLKSTCTRL = 0x00000002;
+        set_ivahd_opp(100);
     } else {
         DEBUG("ivahd already acquired");
     }
@@ -235,8 +254,7 @@ void ivahd_release(void)
     UInt hwiKey = Hwi_disable();
     if (ivahd_use_cnt-- == 1) {
         DEBUG("ivahd release");
-        /* switch HW_AUTO mode */
-        CM_IVAHD_CLKSTCTRL = 0x00000003;
+        set_ivahd_opp(0);
     } else {
         DEBUG("ivahd still in use");
     }
@@ -283,8 +301,6 @@ void ivahd_init(uint32_t chipset_id)
     /* bit of a hack.. not sure if there is a better way for this: */
     HDVICP2_PARAMS.resetControlAddress[0] = ivahd_base + 0xF10;
 
-    ivahd_acquire();
-
     CERuntime_init();
 
     ret = RMAN_init();
@@ -314,10 +330,12 @@ void ivahd_init(uint32_t chipset_id)
 
     ivahd_boot();
 
+    /* clear HSDIVDER_CLKOUT2_DIV */
+    set_ivahd_opp(0);
+
     DEBUG("RMAN_register() for HDVICP is successful");
 
 end:
-    ivahd_release();
     return;
 }
 
