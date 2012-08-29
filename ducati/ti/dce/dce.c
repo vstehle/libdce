@@ -316,11 +316,9 @@ static int codec_create(void *msg)
     DEBUG(">> engine=%08x, name=%s, sparams=%p, codec_id=%d",
             req->engine, req->name, sparams, req->codec_id);
     DEBUG("   sparams size: %d", ((int32_t *)sparams)[0]);
-    ivahd_acquire();
     rsp->codec = (uint32_t)codec_fxns[req->codec_id].create(
             (Engine_Handle)req->engine, req->name, sparams);
     dce_clean(sparams);
-    ivahd_release();
     DEBUG("<< codec=%08x", rsp->codec);
 
 #ifdef KPI_PROFILER
@@ -351,12 +349,10 @@ static int codec_control(void *msg)
             req->codec, req->cmd_id, dparams, status, req->codec_id);
     DEBUG("   dparams size: %d", ((int32_t *)dparams)[0]);
     DEBUG("   status size:  %d", ((int32_t *)status)[0]);
-    ivahd_acquire();
     rsp->result = codec_fxns[req->codec_id].control(
             (void *)req->codec, req->cmd_id, dparams, status);
     dce_clean(dparams);
     dce_clean(status);
-    ivahd_release();
     DEBUG("<< ret=%d", rsp->result);
 
     return sizeof(*rsp);
@@ -490,12 +486,13 @@ static int codec_process(void *msg)
 
     rsp->result = IALG_EOK;
 
-    ivahd_acquire();
     if (req->reloc_len)
         rsp->result = codec_fxns[codec_id].reloc(
                 (void *)req->codec, reloc, (req->reloc_len * 4));
 
     if (rsp->result == IALG_EOK) {
+        ivahd_acquire();
+
 #ifdef KPI_PROFILER
         kpi_before_codec(dce_chipset_id);
 #endif
@@ -506,10 +503,11 @@ static int codec_process(void *msg)
 #ifdef KPI_PROFILER
         kpi_after_codec();
 #endif
+        ivahd_release();
+
     } else {
         DEBUG("reloc failed");
     }
-    ivahd_release();
 
     DEBUG("<< ret=%d", rsp->result);
 
@@ -550,9 +548,7 @@ static int codec_delete(void *msg)
     struct dce_rpc_codec_delete_req *req = msg;
 
     DEBUG(">> codec=%08x, codec_id=%d", req->codec, req->codec_id);
-    ivahd_acquire();
     codec_fxns[req->codec_id].delete((void *)req->codec);
-    ivahd_release();
     DEBUG("<<");
 
 #ifdef KPI_PROFILER
