@@ -1,6 +1,7 @@
 /*
  * Monitor load and trace any change.
  * Author: Vincent Stehlé <v-stehle@ti.com>, copied from ping_tasks.c
+ *         BIOS load alternate method from Alan Karl.
  *
  * Copyright (c) 2011, Texas Instruments Incorporated
  * All rights reserved.
@@ -147,18 +148,32 @@ static void trace_load_if_above(struct load *state, unsigned load, const char *n
     }
 }
 
+/* Alternate way of getting the load from BIOS. We avoid using
+ * Load_getCpuLoad() as it is broken in SMP. */
+static UInt bios_core_load(unsigned core)
+{
+    Load_Stat stat;
+    UInt coreCpuLoad;
+
+    /* get core's Idle task load */
+    Load_getTaskLoad(Task_getIdleTaskHandle(core), &stat);
+    coreCpuLoad = 100 - Load_calculateLoad(&stat);
+    return coreCpuLoad;
+}
+
 /* Monitor load and trace any change. */
 static Void loadTaskFxn(UArg arg0, UArg arg1)
 {
     GateAll_Handle gate;
-    struct load bios_state, iva_state, core0_state, core1_state;
+    struct load bios0_state, bios1_state, iva_state, core0_state, core1_state;
 
     /* Suppress warnings. */
     (void)arg0;
     (void)arg1;
 
     /* Init load state structures. */
-    init_load(&bios_state);
+    init_load(&bios0_state);
+    init_load(&bios1_state);
     init_load(&iva_state);
     init_load(&core0_state);
     init_load(&core1_state);
@@ -185,14 +200,17 @@ static Void loadTaskFxn(UArg arg0, UArg arg1)
 
     /* Infinite loop to trace loads. */
     for (;;) {
-        unsigned bios_load, iva_load, core0_load, core1_load;
+        unsigned bios0_load, bios1_load, iva_load, core0_load, core1_load;
 
-        /* Get BIOS load and trace if delta above threshold.  Note: we "waste"
+        /* Get BIOS loads and trace if delta above threshold.  Note: we "waste"
          * the state structure a bit as we do not use the time fields, and we
          * "waste" the PRECISION, too, but that gives us regularity in the
          * code. */
-        bios_load = (unsigned)Load_getCPULoad() * PRECISION;
-        trace_load_if_above(&bios_state, bios_load, "BIOS");
+        bios0_load = bios_core_load(0) * PRECISION;
+        trace_load_if_above(&bios0_state, bios0_load, "BIOS0");
+
+        bios1_load = bios_core_load(1) * PRECISION;
+        trace_load_if_above(&bios1_state, bios1_load, "BIOS1");
 
         /* Get IVA load, cores loads. "Gating" is done inside each core load
          * computation, and preemption can happen between them. We trace the
