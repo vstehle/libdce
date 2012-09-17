@@ -43,7 +43,6 @@
 #include <ti/pm/_IpcPower.h>
 #include <ti/sdo/ce/Engine.h>
 #include <ti/sdo/ce/CERuntime.h>
-#include <ti/sdo/utils/trace/gt.h>
 #include <xdc/cfg/global.h>
 
 #include "dce_priv.h"
