@@ -455,6 +455,17 @@ static int codec_process(void *msg)
     DEBUG(">> codec=%p, inBufs=%p, outBufs=%p, inArgs=%p, outArgs=%p, codec_id=%d",
             req->codec, in_bufs, out_bufs, in_args, out_args, codec_id);
 
+    /* Clear out buffers to free list, in case some codecs do not
+       initialize it when erroring out (see below). */
+    switch(codec_id) {
+    case OMAP_DCE_VIDENC2:
+        ((VIDENC2_OutArgs *)out_args)->freeBufID[0] = 0;
+        break;
+    case OMAP_DCE_VIDDEC3:
+        ((VIDDEC3_OutArgs *)out_args)->freeBufID[0] = 0;
+        break;
+    }
+
     rsp->result = IALG_EOK;
 
     ivahd_acquire();
@@ -474,7 +485,9 @@ static int codec_process(void *msg)
 
     rsp->count = 0;
 
-    if (rsp->result == IALG_EOK) {
+    /* We used to transfer the freeBufID array only when no error occured,
+       but at least the MPEG2 decoder uses it even when erroring out. */
+    {
         int32_t *free_buf_ids;
         int i;
 
