@@ -58,7 +58,6 @@
 
 #include <ti/ipc/rpmsg/MessageQCopy.h>
 #include <ti/srvmgr/NameMap.h>
-#include <ti/resmgr/IpcResource.h>
 
 #include "dce_priv.h"
 #include "dce_rpc.h"

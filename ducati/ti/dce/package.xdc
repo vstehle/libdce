@@ -36,7 +36,6 @@
 
 requires ti.ipc.rpmsg;
 requires ti.srvmgr;
-requires ti.resmgr;
 requires ti.sdo.ce;
 requires ti.sdo.ce.video2;
 requires ti.sdo.ce.video3;

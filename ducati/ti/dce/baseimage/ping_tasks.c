@@ -49,7 +49,6 @@
 
 #include <ti/ipc/rpmsg/MessageQCopy.h>
 #include <ti/srvmgr/NameMap.h>
-#include <ti/resmgr/IpcResource.h>
 
 #define APP_NUM_ITERATIONS 100000
 
