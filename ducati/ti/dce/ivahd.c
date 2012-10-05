@@ -119,7 +119,7 @@ static inline void sleepms(int ms)
     Task_sleep(((ms * 1000 + (Clock_tickPeriod - 1)) / Clock_tickPeriod));
 }
 
-void ivahd_boot(void)
+static void ivahd_boot(void)
 {
     int i;
     volatile unsigned int *icont1_itcm_base_addr =
@@ -311,6 +311,8 @@ void ivahd_init(uint32_t chipset_id)
     }
 
     sleepms(10);
+
+    ivahd_boot();
 
     DEBUG("RMAN_register() for HDVICP is successful");
 

@@ -272,7 +272,6 @@ static int engine_open(void *msg)
     Engine_Error ec;
 
     DEBUG(">> name=%s", req->name);
-    ivahd_boot();
     rsp->engine = (uint32_t)Engine_open(req->name, NULL, &ec);
     rsp->error_code = ec;
     DEBUG("<< engine=%08x, ec=%d", rsp->engine, rsp->error_code);
