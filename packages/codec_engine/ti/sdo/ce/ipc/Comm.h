@@ -1,5 +1,5 @@
 /* 
- * Copyright (c) 2010, Texas Instruments Incorporated
+ * Copyright (c) 2012, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -97,7 +97,6 @@ extern Comm_Attrs Comm_ATTRS;   /* default attrs */
  * (which require a header to maintain message control/transport information)
  */
 typedef struct Comm_MsgHeader {
-#if MESSAGEQ_ENABLED
     UInt32 reserved[2]; /* reserved[0] doubles as "next" in the linked list */
     UInt32 size;        /* UInt32 msgSize; */
     UInt16 reserved1;   /* UInt16 flags; */
@@ -108,16 +107,8 @@ typedef struct Comm_MsgHeader {
     UInt16 reserved6;   /* UInt16 replyProc; */
     UInt16 reserved7;   /* UInt16 srcProc; */
     UInt16 reserved8;   /* UInt16 heapId; */
-    UInt32 reserved9;   /* UInt32 reserved; */
-#else
-    UInt32 reserved[2]; /* reserved[0] doubles as "next" in the linked list */
-    UInt16 reserved1;   /* UInt16 srcProcId; */
-    UInt16 reserved2;   /* UInt16 poolId; */
-    UInt16 size;
-    UInt32 reserved3;   /* UInt32 dstId; */
-    UInt32 reserved4;   /* UInt32 srcId; */
-    UInt16 msgId;
-#endif
+    UInt16 reserved9;   /* UInt16 seqNum; */
+    UInt32 reserved10;  /* UInt32 reserved; */
 } Comm_MsgHeader, *Comm_Msg;
 
 /*
@@ -188,6 +179,12 @@ extern Int Comm_getSendersId(Comm_Msg msg, Comm_Id *msgqId);
 extern Comm_Id Comm_getId(Comm_Handle comm);
 
 /*
+ *  ======== Comm_staticMsgInit ========
+ *  Initialize fields of a static Comm_Msg.
+ */
+extern Void Comm_staticMsgInit(Comm_Msg msg, UInt32 size);
+
+/*
  *  ======== Comm_setSrcQueue ========
  *  Put id of sender queue into message
  */
@@ -227,6 +224,7 @@ extern Int Comm_release(Comm_Id msgqId);
 
 #endif
 /*
- *  @(#) ti.sdo.ce.ipc; 2, 0, 1,150; 7-27-2010 21:29:41; /db/atree/library/trees/ce/ce-q08x/src/
+ *  @(#) ti.sdo.ce.ipc; 2, 0, 1,1; 8-14-2012 13:01:32; /db/atree/library/trees/ce/ce-u07/src/ xlibrary
+
  */
 

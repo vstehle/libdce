@@ -1,5 +1,5 @@
 /* 
- * Copyright (c) 2010, Texas Instruments Incorporated
+ * Copyright (c) 2012, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -54,6 +54,11 @@
 extern "C" {
 #endif
 
+
+#include <ti/sdo/ce/ServerDefs.h>
+#include <ti/sdo/ce/Engine.h>
+#include <ti/sdo/ce/skel.h>
+
 #include <stdio.h>  /* def of FILE * */
 
 /** @ingroup    ti_sdo_ce_Server */
@@ -74,12 +79,6 @@ extern "C" {
  */
 #define Server_MAXSEGNAMELENGTH 32
 
-
-/**
- *  @brief      Opaque handle to the server for an engine.
- */
-typedef struct Server_Obj *Server_Handle;
-
 /**
  *  @brief      Server error code
  */
@@ -91,11 +90,173 @@ typedef enum Server_Status {
     Server_EINVAL    = 4,      /**< Bad value passed to function. */
     Server_EWRONGSTATE =5,     /**< Server is not in the correct state to
                                 *   execute the requested function. */
-    Server_EINUSE   = 6,       /**< Server call did not succeed because a
+    Server_EINUSE    = 6,      /**< Server call did not succeed because a
                                 *   because a required resource is in use. */
     Server_ENOTFOUND = 7,      /**< An entity was not found */
-    Server_EFAIL = 8           /**< Unknown failure */
+    Server_EFAIL     = 8,      /**< Unknown failure */
+    Server_ENOTSUPPORTED = 9   /**< API not supported for given parameters. */
 } Server_Status;
+
+/*
+ *  ======== Server_AlgDesc ========
+ */
+typedef struct Server_AlgDesc {
+    /**
+     *  @brief  The name of the algorithm. This is used by the application
+     *          when instantiating an instance of the algorithm through one
+     *          of the VISA APIs.
+     */
+    String      name;
+
+    /**
+     *  @brief  The address of the XDAIS alg function table.
+     *
+     *  @remarks
+     *          All XDAIS algorithms must define an IALG_Fxns structure that
+     *          contains implementations of the IALG methods.  This field
+     *          is simply the address of this structure.
+     */
+    IALG_Fxns   *fxns;
+
+    /**
+     *  @brief  The address of the IDMA3_Fxns function table, if the algorithm
+     *          uses DMA. If the algorithm does not use DMA, this field should
+     *          set to NULL. Valid for local algorithm only.
+     */
+    Ptr         idmaFxns;
+
+    /**
+     *  @brief  If true, the algorithm will be instantiated on the
+     *          "local" CPU.  Otherwise the server will create an
+     *           instance of the algorithm.
+     */
+    Bool        isLocal;
+
+    /**
+     *  @brief  This id specifies which resource sharing group that this
+     *          alg will be placed into.
+     *
+     *  @remarks
+     *          This 'group' concept is used by the framework for sharing
+     *          resources. Algorithms in the same group share resources, and
+     *          therefore, must not run at the same time. If you assign the
+     *          same groupId to multiple algorithms, these algorithms must
+     *          not pre-empt eachother, or the shared resources may be
+     *          corrupted.
+     *          When server algorithms are configured statically in a .cfg
+     *          file, if the @c groupId parameter for the algorithm has
+     *          not been set, the configuration process assigns the @c groupId
+     *          will be assigned automatically, based on the priority that
+     *          the algorithm will run at.  However, when Server_addAlg() is
+     *          used to dynamically add the algorithm to the server, you must
+     *          ensure that the @c groupId is appropriately. If two algorithms
+     *          will run at the same time, you must assign them different
+     *          group Ids.
+     *
+     *          Algorithms in different groups do not share resources.
+     *
+     *  @sa http://processors.wiki.ti.com/index.php/Codec_Engine_GroupIds
+     */
+    Int         groupId;
+
+    /**
+     *  @brief  Address of the XDAIS alg IRES Interface function table.
+     *
+     *  @remarks
+     *          All XDAIS algorithms that use an IRES resource must define an
+     *          IRES_Fxns structure containing the pointers to functions
+     *          implementatng the IRES interface.
+     *          If the algorithm does not use an IRES resource this field
+     *          should be set to NULL.
+     */
+    Ptr         iresFxns;
+
+    /*
+     *  Currently not used.
+     *           Codec class configuration data for stub side, if any.  We
+     *           generate this structure for both sides, although it is
+     *           currently only used in the skeletons.
+     */
+    Void        *stubsCodecClassConfig;
+
+    /**
+     *  @brief  Codec class configuration data, if any.
+     */
+    Void        *codecClassConfig;
+
+    /*
+     *  Currently not used.
+     *          Indicates the type of memory the alg's memory requests will
+     *          be allocated from.
+     *          The alg's memory will be allocated from cached memory, if
+     *              memType = Engine_USECACHEDMEM_CACHED,
+     *          from non-cached memory, if
+     *              memType = Engine_USECACHEDMEM_NONCACHED,
+     *          Otherwise, if
+     *              memType = Engine_USECACHEDMEM_DEFAULT,
+     *          memory allocations will be determined by the value of
+     *          ti_sdo_ce_alg_Algorithm_useCache (cached, if TRUE, non-cached,
+     *          if FALSE).
+     *
+     *  @sa  Engine_CachedMemType
+     */
+    Engine_CachedMemType memType;  /**< Memory type for alg's mem reqs. */
+
+    /**
+     *  @brief  A string idicating the type(s) of algorithm this is.
+     *          This should be a ';' separated string of inherited types.
+     *
+     *  @remarks
+     *          In most cases, @c types will just be set to the VISA type
+     *          defined in the Codec Engine algorithm interface header
+     *          file included by the algorithm, depending on the XDM interface
+     *          the algorithm implements.
+     *
+     *          For example, if the algorithm implements the ISPHDEC1
+     *          interface as defined by XDM, @c types should be set
+     *          to
+     *              @c SPHDEC1_VISATYPE
+     *          (defined as "ti.sdo.ce.speech1.ISPHDEC1" in the header file
+     *          ti/sdo/ce/speech1/sphdec1.h).
+     *
+     *          Another example to illustrate multiple typss specified in
+     *          @c typss, if the algorithm implements the (made-up)
+     *          interface, ti.sdo.ce.test.xvideo.IVIDE, which in turn
+     *          implements the IVIDDEC interface, we could then set @c types
+     *          to
+     *              VIDDEC_VISATYPE";ti.sdo.ce.test.xvideo.IVIDE"
+     *          or
+     *              "ti.sdo.ce.test.xvideo.IVIDE;"VIDDEC_VISATYPE
+     */
+    String      types;
+
+    /**
+     *  @brief  A string idicating the name of the stub functions.  This is
+     *  needed by remote apps that call Engine_initFromServer().
+     */
+    String      stubFxnsName;
+
+    /**
+     *  @brief  The skel functions needed to invoke the alg remotely
+     */
+    SKEL_Fxns   *skelFxns;
+
+    /**
+     *  @brief  The priority the alg will run at.
+     */
+    Int         priority;
+
+    /**
+     *  @brief  Algorithm stack size.
+     */
+    Int         stackSize;
+
+    /*
+     *  Currently not used.
+     *          Memory heap for algorithm stack.
+     */
+    Int         stackSeg;
+} Server_AlgDesc;
 
 /**
  *  @brief      Information for a memory heap of a remote DSP server.
@@ -111,6 +272,109 @@ typedef struct Server_MemStat {
     Uint32 used;           /**< Number of bytes used. */
     Uint32 maxBlockLen;    /**< Length of the largest contiguous free block. */
 } Server_MemStat;
+
+
+/*
+ *  ======== Server_addAlg ========
+ */
+/**
+ *  @brief      Dynamically add an algorithm to a Server.
+ *
+ *  @param[in]  server          The handle of a server returned by
+ *                              Engine_getServer().  Set to NULL when adding
+ *                              a local algorithm to the server. In the
+ *                              future, this handle will be used to
+ *                              dynamically add algorithms to a remote server.
+ *  @param[in]  location        String identifying the location of the
+ *                              algorithm.  Often this is a file name, but for
+ *                              systems without a file system, it may be a
+ *                              system-specific string identifier. This may
+ *                              be NULL if the algorithm is built into the
+ *                              executable. Currently not supported - set to
+ *                              NULL.
+ *  @param[in]  pAlgDesc        Parameters describing the algorithm being
+ *                              added. Before setting the fields of this
+ *                              structure, it should first be initialized
+ *                              with @c Server_initAlgDesc(), to set all
+ *                              fields to default values.
+ *
+ *                              The user must set the following fields of
+ *                              pAlgDesc:
+ *                                  pAlgDesc->name
+ *                                  pAlgDesc->fxns
+ *                                  pAlgDesc->idmaFxns, if applicable
+ *                                  pAlgDesc->iresFxns, if applicable
+ *
+ *                                  pAlgDesc->groupId
+ *                                  pAlgDesc->priority
+ *                                  pAlgDesc->stackSize
+ *
+ *                                  pAlgDesc->types
+ *                                  pAlgDesc->stubFxnsName
+ *                                  pAlgDesc->skelFxns
+ *
+ *                              Currently, adding only local algorithms is
+ *                              supported, so the default value of TRUE can
+ *                              be used for:
+ *                                  pAlgDesc->isLocal
+ *
+ *  @pre        As with all Codec Server API's, CERuntime_init() must have
+ *              previously been called.
+ *
+ *  @remarks    If adding a local algorithm to a server that is built with
+ *              BIOS, this function must be called after CERuntime_init()
+ *              has been called, but before BIOS_start(). This is necessary
+ *              to ensure that the algorithm will be visible to the remote
+ *              app that loaded the server.
+ *
+ *  @remarks    If adding a remote algorithm to a remote server, the server
+ *              handle for the opened Engine must be used.  The server handle
+ *              is obtained by calling Engine_getServer() with the handle of
+ *              the opened engine.
+ *              In this case, the added algorithm will only be accessible to
+ *              the caller of this function.
+ *              Adding a remote algorithm is not yet supported.
+ *
+ *  @remarks    If there is an existing algorithm in the server already named
+ *              @c name, an error will be returned.
+ *
+ *  @retval     Server_EOK       Success.
+ *  @retval     Server_EINVAL    @c pAlgDesc or @c pAlgDesc->name is NULL.
+ *  @retval     Server_EINUSE    The name of the alg in @c pAlgDesc->name is
+ *                               already in use.
+ *  @retval     Server_ENOTSUPPORTED  @c pAlgDesc->isLocal = FALSE is currently
+ *                               not supported.
+ *
+ *  @par Example Usage:
+ *  @code
+ *      #include <ti/sdo/ce/Server.h>
+ *
+ *      Server_AlgDesc desc;
+ *
+ *      Server_initAlgDesc(&desc);
+ *
+ *      desc.groupId = 2;
+ *      desc.isLocal = TRUE;
+ *      desc.fxns = &UNIVERSALCOPY_TI_IUNIVERSALCOPY;
+ *      desc.idmaFxns = NULL;
+ *      desc.iresFxns = NULL;
+ *      desc.priority = 2;
+ *      desc.stackSize = 0x2000;
+ *      desc.types = UNIVERSAL_VISATYPE;
+ *      desc.stubFxnsName = "UNIVERSAL_STUBS";
+ *      desc.skelFxns = &UNIVERSAL_SKEL;
+ *
+ *      status = Server_addAlg(NULL, NULL, &desc);
+ *
+ *  @endcode
+ *
+ *  @sa         Server_AlgDesc
+ *  @sa         Server_initAlgDesc()
+ *  @sa         Engine_getServer()
+ */
+extern Server_Status Server_addAlg(Server_Handle server, String location,
+        Server_AlgDesc *pAlgDesc);
+
 
 /*
  *  ======== Server_connectTrace ========
@@ -236,6 +500,9 @@ extern Int Server_getCpuLoad(Server_Handle server);
  *              heap @c segNum on the DSP.
  *
  *  @sa         Server_getNumMemSegs().
+ *
+ *  @remarks    This API only returns statistics for BIOS HeapMem heaps
+ *              that have been statically configured into the server.
  */
 extern Server_Status Server_getMemStat(Server_Handle server, Int segNum,
         Server_MemStat *memStat);
@@ -249,8 +516,9 @@ extern Server_Status Server_getMemStat(Server_Handle server, Int segNum,
  *  @param[in]  server          Server handle obtained from Engine_getServer().
  *  @param[out] numSegs         The number of heap segments of the DSP server.
  *
- *  @retval     Server_EOK      Success.
- *  @retval     Server_ERUNTIME Internal runtime error occurred.
+ *  @retval     Server_EOK        Success.
+ *  @retval     Server_ERUNTIME   Internal runtime error occurred.
+ *  @retval     Server_ENOSERVER  Engine has no server.
  *
  *  @pre        @c server is non-NULL.
  *  @pre        @c numSegs is non-NULL.
@@ -259,6 +527,9 @@ extern Server_Status Server_getMemStat(Server_Handle server, Int segNum,
  *              on the DSP.
  *
  *  @sa         Server_getMemStat().
+ *
+ *  @remarks    This API returns only the number of BIOS HeapMem heaps that
+ *              have been statically configured into the server.
  */
 extern Server_Status Server_getNumMemSegs(Server_Handle server, Int *numSegs);
 
@@ -270,11 +541,49 @@ extern Void Server_init(Void);
 /** @endcond */
 
 /*
+ *  ======== Server_initAlgDesc ========
+ */
+/**
+ *  @brief      Initialize an Server_AlgDesc structure with default values.
+ *
+ *  @param[in]  pAlgDesc  Location of Server_AlgDesc object to initialize.
+ *                        The fields of pAlgDesc will be set to the following:
+ *  @code
+ *                        pAlgDesc->name = NULL;
+ *                        pAlgDesc->uuid.data = 0;
+ *                        pAlgDesc->fxns = NULL;
+ *                        pAlgDesc->idmaFxns = NULL;
+ *                        pAlgDesc->typeTab = NULL;
+ *                        pAlgDesc->isLocal = TRUE;
+ *                        pAlgDesc->groupId = 0;
+ *                        pAlgDesc->iresFxns = NULL;
+ *                        pAlgDesc->codecClassConfig = NULL;
+ *                        pAlgDesc->priority = 1;
+ *                        pAlgDesc->stackSize = 1024;
+ *                        pAlgDesc->types = NULL;
+ *                        pAlgDesc->stubFxnsName = NULL;
+ *                        pAlgDesc->skelFxns = NULL;
+ *
+ *                        Unused fields below are initialized to the
+ *                        following:
+ *
+ *                        pAlgDesc->rpcProtocolVersion = 0;
+ *                        pAlgDesc->memType = Engine_USECACHEDMEM_DEFAULT;
+ *                        pAlgDesc->stackSeg = 0;
+ *
+ *  @endcode
+ *
+ *  @sa         Server_addAlg()
+ */
+extern Void Server_initAlgDesc(Server_AlgDesc *pAlgDesc);
+
+/*
  *  ======== Server_redefineHeap ========
  */
 /**
  *  @brief Set the base address and size of a remote DSP server heap.
  *
+ *  @remarks
  *  This API is used to move and/or resize a named heap of the remote DSP
  *  server.  The address passed to this API is a DSP address and the
  *  memory from @c base to @c base + @c size must be contiguous in physical
@@ -321,9 +630,53 @@ extern Void Server_init(Void);
  *              set to @c base, and the size will have been set to @c size.
  *
  *  @sa         Server_restoreHeap().
+ *
+ *  @remarks    This API is not supported in Codec Engine 3.20.
  */
 extern Server_Status Server_redefineHeap(Server_Handle server, String name,
         Uint32 base, Uint32 size);
+
+#if 0
+/*
+ *  ======== Server_removeAlg ========
+ */
+/*
+ *  Currently not implemented.
+ *
+ *  @brief      Dynamically remove an algorithm that was added to a Server
+ *              with Server_addAlg().
+ *
+ *  @remarks    The same values of the parameters @c name and @c server that
+ *              were passed to Server_addAlg() should be used here.  In
+ *              particular, if @c name was used to add the alg, all handles to
+ *              the engine named @c name must be closed before calling
+ *              Server_removeAlg().
+ *
+ *
+ *  @param[in]  name            The name of the engine or NULL, that was
+ *                              passed to Server_addAlg(). Set to NULL for now.
+ *                              Currently, only the default "local" engine is
+ *                              supported.
+ *  @param[in]  server          The handle to a server, previously acquired
+ *                              by a call to Engine_getServer(), or NULL.
+ *                              Set to NULL for now.  In the future, this will
+ *                              be used to dynamically remove remote
+ *                              algorithms from a server.
+ *  @param[in]  algName         Name of the algorithm to remove.
+ *
+ *  @retval     Server_EOK          Success.
+ *  @retval     Server_ENOTFOUND    The server's underlying engine, @c name,
+ *                                  does not exist.
+ *  @retval     Server_ENOTFOUND    @c algName could not be found in the
+ *                                  server's underlying engine table.
+ *  @retval     Server_EINUSE       The server's underlying engine, @c name,
+ *                                  is still open.
+ *
+ *  @sa         Server_addAlg()
+ */
+extern Server_Status Server_removeAlg(String name, Server_Handle server,
+        String algName);
+#endif
 
 /*
  *  ======== Server_restoreHeap ========
@@ -358,6 +711,8 @@ extern Server_Status Server_redefineHeap(Server_Handle server, String name,
  *              have been reset to their original value.
  *
  *  @sa         Server_redefineHeap().
+ *
+ *  @remarks    This API is not supported in Codec Engine 3.20.
  */
 extern Server_Status Server_restoreHeap(Server_Handle server, String name);
 
@@ -395,6 +750,7 @@ extern Int Server_setTrace(Server_Handle server, String mask);
 
 #endif
 /*
- *  @(#) ti.sdo.ce; 1, 0, 6,403; 7-27-2010 22:02:16; /db/atree/library/trees/ce/ce-q08x/src/
+ *  @(#) ti.sdo.ce; 1, 0, 6,1; 8-14-2012 12:59:44; /db/atree/library/trees/ce/ce-u07/src/ xlibrary
+
  */
 

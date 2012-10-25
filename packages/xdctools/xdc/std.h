@@ -42,18 +42,29 @@ typedef va_list         xdc_VaList;
 
 /* Generic Extended Types */
 
-typedef unsigned short  xdc_Bool;
+typedef unsigned short  xdc_Bool;       /* boolean flag */
 typedef void            *xdc_Ptr;       /* data pointer */
 typedef char            *xdc_String;    /* null terminated string */
 
 /* we intentionally omit arguments from Fxn to indicate that it can have
  * any (or none).  Unfortunately this causes gcc to emit warnings when
- * -Wstrict-prototypes is used.  Newer gcc's support a pragma that
- * may work around this:
+ * -Wstrict-prototypes is used.  Newer gcc's (4.6 or later) support a pragma
+ * that works around this:
  *
- *    #pragma GCC diagnostic ignored "-Wstrict-prototype"
+ *    #pragma GCC diagnostic ignored "-Wstrict-prototypes"
  */
-typedef int             (*xdc_Fxn)();   /* function pointer */
+#ifdef __GNUC__
+  #if __GNUC__ > 4 || (__GNUC__ == 4 && (__GNUC_MINOR__ >= 6))
+    #pragma GCC diagnostic push
+    #pragma GCC diagnostic ignored "-Wstrict-prototypes"
+    typedef int             (*xdc_Fxn)();   /* function pointer */
+    #pragma GCC diagnostic pop
+  #else
+    typedef int             (*xdc_Fxn)();   /* function pointer */
+  #endif
+#else
+  typedef int             (*xdc_Fxn)();   /* function pointer */
+#endif
 
 /*
  * Import the target-specific std.h
@@ -64,6 +75,12 @@ typedef int             (*xdc_Fxn)();   /* function pointer */
 #ifdef xdc_target__
 #include xdc_target__
 #else
+/* if the user did not supply the required xdc_target* definitions, ask well
+ * known compiler tool chains to select based on their pre-defined macros
+ */
+#ifdef __TI_COMPILER_VERSION__
+#include <ti/targets/select.h>
+#else
 /*
  * 'xdc_target_types__' must be defined to name a target-specific header
  * file (e.g., ti/targets/std.h) that has definitions for the basic types:
@@ -73,8 +90,6 @@ typedef int             (*xdc_Fxn)();   /* function pointer */
  * add the following option to your compiler's command line:
  *    -Dxdc_target_types__=ti/targets/std.h
  */
-//#warning xdc_target_types__ must be defined to name a target-specific header containing definitions of xdc_Int8, xdc_Int16, ...
-// XXX add stdint target to use stdint types..
 
 /* the following definitions are required to keep the compiler from
  * complaining about references to these types in the rest of this header;
@@ -89,6 +104,7 @@ typedef unsigned short xdc_UInt16;
 typedef int xdc_Int32;
 typedef unsigned int xdc_UInt32;
 #endif
+#endif
 
 /* Each modules' internal header file defines 'module' as 
  * xdc__MODOBJADDR__(Module__state__V), where Module__state__V is the actual
@@ -101,7 +117,7 @@ typedef unsigned int xdc_UInt32;
  * xdc__MODOBJADDR__ in std.h for their target package.
  */
 #ifndef xdc__MODOBJADDR__
-#define xdc__MODOBJADDR__(symbol) &symbol
+#define xdc__MODOBJADDR__(symbol) (&(symbol))
 #endif
 
 /* Long Long Types */
@@ -142,8 +158,10 @@ static inline xdc_Fxn xdc_uargToFxn(xdc_UArg a) { return ((xdc_Fxn)a); }
 
 #ifndef xdc__ARGTOFLOAT
 /*
- * functions to convert a single precision float to an arg
- * Here assumption is that sizeof(Float) <= sizeof(IArg);
+ * functions to efficiently convert a single precision float to an IArg
+ * and vice-versa while maintaining client type safety
+ * 
+ * Here the assumption is that sizeof(Float) <= sizeof(IArg);
  */
 typedef union xdc_FloatData {
     xdc_Float f;
@@ -263,8 +281,18 @@ typedef xdc_Bits64      Bits64;
 
 /* Standard Constants */
 
+/* NULL must be 0 for C++ and is set to 0 in C to allow legacy code to
+ * compile without warnings.
+ *
+ * If xdc_strict is defined, NULL is defined to be a pointer to allow
+ * maximal type checking in "modern" C sources
+ */
 #undef NULL
+#if defined(__cplusplus) || !defined(xdc__strict)
 #define NULL 0
+#else
+#define NULL ((void *)0)
+#endif
 
 #undef FALSE
 #define FALSE 0
@@ -278,15 +306,15 @@ typedef xdc_Bits64      Bits64;
 #define __FAR__
 #endif
 
-/* Code-Section Directive */
-
 /*
  *  ======== xdc__CODESECT ========
- *  targets can optionally #define xdc__CODESECT in their specific
+ *  Code-Section Directive
+ *
+ *  Targets can optionally #define xdc__CODESECT in their specific
  *  std.h files.  This directive is placed in front of all
  *  "extern" function declarations, and specifies a section-name in
  *  which to place this function.  This approach
- *  will give folks more control on combining/organizing groups of
+ *  provides more control on combining/organizing groups of
  *  related functions into a single named sub-section (e.g.,
  *  "init-code")  If this macro is not defined by the target, an
  *  empty definition is used instead.
@@ -294,7 +322,6 @@ typedef xdc_Bits64      Bits64;
 #ifndef xdc__CODESECT
 #define xdc__CODESECT(fn, sn)
 #endif
-
 
 /*
  *  ======== xdc__META ========
@@ -316,6 +343,6 @@ typedef xdc_Bits64      Bits64;
 
 #endif /* xdc_std__include */
 /*
- *  @(#) xdc; 1, 1, 1,284; 6-23-2010 14:02:49; /db/ztree/library/trees/xdc/xdc-v41x/src/packages/
+ *  @(#) xdc; 1, 1, 1,390; 9-20-2012 15:01:49; /db/ztree/library/trees/xdc/xdc-y36x/src/packages/
  */
 

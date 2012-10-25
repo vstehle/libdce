@@ -1,5 +1,5 @@
 /* 
- * Copyright (c) 2010, Texas Instruments Incorporated
+ * Copyright (c) 2012, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -74,6 +74,20 @@ extern "C" {
 
 #define VIDENC2_ETIMEOUT VISA_ETIMEOUT       /**< @copydoc VISA_ETIMEOUT */
 #define VIDENC2_FOREVER  VISA_FOREVER        /**< @copydoc VISA_FOREVER */
+
+
+/**
+ *  @brief      The VISA type
+ */
+#define VIDENC2_VISATYPE "ti.sdo.ce.video2.IVIDENC2"
+
+/**
+ *  @brief      Name of stub functions. Use this name when registering the
+ *              VIDENC2_STUBS functions with Engine_addStubFxns.
+ *
+ *  @sa         Engine_addStubFxns
+ */
+#define VIDENC2_STUBSNAME "VIDENC2_STUBS"
 
 
 /**
@@ -376,7 +390,7 @@ extern XDAS_Int32 VIDENC2_processWait(VIDENC2_Handle handle,
 
 #endif
 /*
- *  @(#) ti.sdo.ce.video2; 1, 0, 3,172; 11-3-2010 22:21:40; /db/atree/library/trees/ce/ce-q16x/src/ xlibrary
+ *  @(#) ti.sdo.ce.video2; 1, 0, 3,1; 8-14-2012 13:02:57; /db/atree/library/trees/ce/ce-u07/src/ xlibrary
 
  */
 

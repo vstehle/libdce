@@ -1,5 +1,5 @@
 /* 
- * Copyright (c) 2010, Texas Instruments Incorporated
+ * Copyright (c) 2012, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -198,6 +198,7 @@ static inline Bool NODE_uuidMatch(NODE_Uuid *uuid1, NODE_Uuid *uuid2)
 
 #endif
 /*
- *  @(#) ti.sdo.ce.node; 1, 0, 0,395; 7-27-2010 22:15:26; /db/atree/library/trees/ce/ce-q08x/src/
+ *  @(#) ti.sdo.ce.node; 1, 0, 0,1; 8-14-2012 13:01:45; /db/atree/library/trees/ce/ce-u07/src/ xlibrary
+
  */
 

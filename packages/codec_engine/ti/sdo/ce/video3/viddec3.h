@@ -1,5 +1,5 @@
 /* 
- * Copyright (c) 2010, Texas Instruments Incorporated
+ * Copyright (c) 2012, Texas Instruments Incorporated
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -74,6 +74,19 @@ extern "C" {
 
 #define VIDDEC3_ETIMEOUT VISA_ETIMEOUT        /**< @copydoc VISA_ETIMEOUT */
 #define VIDDEC3_FOREVER  VISA_FOREVER         /**< @copydoc VISA_FOREVER */
+
+/**
+ *  @brief      The VISA type
+ */
+#define VIDDEC3_VISATYPE "ti.sdo.ce.video3.IVIDDEC3"
+
+/**
+ *  @brief      Name of stub functions. Use this name when registering the
+ *              VIDDEC3_STUBS functions with Engine_addStubFxns.
+ *
+ *  @sa         Engine_addStubFxns
+ */
+#define VIDDEC3_STUBSNAME "VIDDEC3_STUBS"
 
 
 /**
@@ -372,6 +385,7 @@ extern XDAS_Int32 VIDDEC3_processWait(VIDDEC3_Handle handle,
 
 #endif
 /*
- *  @(#) ti.sdo.ce.video3; 1, 0, 0,93; 7-27-2010 22:27:25; /db/atree/library/trees/ce/ce-q08x/src/
+ *  @(#) ti.sdo.ce.video3; 1, 0, 0,1; 8-14-2012 13:03:01; /db/atree/library/trees/ce/ce-u07/src/ xlibrary
+
  */
 
