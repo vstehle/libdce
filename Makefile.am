@@ -2,18 +2,22 @@
 
 SUBDIRS                      = \
                                packages/codec_engine \
+                               packages/framework_components \
                                packages/ivahd_codecs \
-                               packages/xdctools \
-                               packages/xdais
+                               packages/xdais \
+                               packages/xdctools
 
 lib_LTLIBRARIES              = libdce.la
 
 CE_CFLAGS                    = \
                                -I$(top_srcdir)/ducati \
+                               -I$(top_srcdir)/packages/ \
                                -I$(top_srcdir)/packages/codec_engine \
+                               -I$(top_srcdir)/packages/framework_components \
                                -I$(top_srcdir)/packages/ivahd_codecs \
+                               -I$(top_srcdir)/packages/xdais \
                                -I$(top_srcdir)/packages/xdctools \
-                               -I$(top_srcdir)/packages/xdais
+			       -Wno-pointer-to-int-cast
 
 libdce_la_SOURCES            = libdce.c
 libdce_la_CFLAGS             = $(WARN_CFLAGS) $(CE_CFLAGS) $(DRM_CFLAGS) $(X11_CFLAGS) $(WAYLAND_CFLAGS)

@@ -88,6 +88,7 @@ AC_CONFIG_FILES([
 libdce.pc
 Makefile
 packages/codec_engine/Makefile
+packages/framework_components/Makefile
 packages/ivahd_codecs/Makefile
 packages/xdais/Makefile
 packages/xdctools/Makefile

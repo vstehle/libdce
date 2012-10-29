@@ -8,4 +8,6 @@ nobase_pkg_include_HEADERS = \
 	ti/xdais/dm/ivideo.h \
 	ti/xdais/dm/xdm.h \
 	ti/xdais/ialg.h \
+	ti/xdais/ires.h \
+	ti/xdais/ires_common.h \
 	ti/xdais/xdas.h
