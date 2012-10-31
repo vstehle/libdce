@@ -39,6 +39,7 @@ requires ti.srvmgr;
 requires ti.sdo.ce;
 requires ti.sdo.ce.video2;
 requires ti.sdo.ce.video3;
+requires ti.sdo.fc.utils;
 
 /*!
  *  ======== ti.dce ========

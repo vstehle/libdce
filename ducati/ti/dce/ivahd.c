@@ -246,7 +246,10 @@ void ivahd_release(void)
 static Bool allocFxn(IALG_MemRec *memTab, Int numRecs);
 static void freeFxn(IALG_MemRec *memTab, Int numRecs);
 
-
+/* ivahd_init() will be called in 2 situations :
+ * - when omapdce kernel module is loaded
+ * - when resuming from suspend
+ */
 void ivahd_init(uint32_t chipset_id)
 {
     IRES_Status ret;
