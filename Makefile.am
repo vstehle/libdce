@@ -21,7 +21,7 @@ CE_CFLAGS                    = \
 
 libdce_la_SOURCES            = libdce.c
 libdce_la_CFLAGS             = $(WARN_CFLAGS) $(CE_CFLAGS) $(DRM_CFLAGS) $(X11_CFLAGS) $(WAYLAND_CFLAGS)
-libdce_la_LDFLAGS            = -no-undefined
+libdce_la_LDFLAGS            = -no-undefined -version-info 1:0:0
 libdce_la_LIBADD             = $(DRM_LIBS) $(X11_LIBS) $(WAYLAND_LIBS)
 
 if ENABLE_X11
