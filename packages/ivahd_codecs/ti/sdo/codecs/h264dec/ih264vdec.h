@@ -1,15 +1,16 @@
-/* ====================================================================
- *   Copyright (C) 2010 Texas Instruments Incorporated
+/*
+*******************************************************************************
+ * HDVICP2.0 Based H.264 HP Decoder
  *
- *   All rights reserved. Property of Texas Instruments Incorporated.
- *   Restricted rights to use, duplicate or disclose this code are
- *   granted through contract.
- *
- *   The program may not be used without the written permission
- *   of Texas Instruments Incorporated or against the terms and conditions
- *   stipulated in the agreement under which this program has been
- *   supplied.
- * ==================================================================== */
+ * "HDVICP2.0 Based H.264 HP Decoder" is a software module developed on TI's
+ *  HDVICP2 based SOCs. This module is capable of decoding a compressed
+ *  high/main/baseline profile H.264 bit-stream into a YUV 4:2:0 Raw video.
+ *  Based on "ISO/IEC 14496-10".
+ * Copyright (C) 2009 Texas Instruments Incorporated - http://www.ti.com/
+ * ALL RIGHTS RESERVED
+*******************************************************************************
+*/
+
 /**
 *******************************************************************************
  * @file ih264vdec.h
@@ -45,8 +46,18 @@
  * @version 0.9 (Jan 2011) : Added new common str for storing up the Data
  *                           elements required by SVC decoder
  *                           [Ashish]
- * @version 1.0 (Sept 2011) : Gaps in frame number enhancements
+ * @version 1.0(June 2011) : Added enableDualOutput param and enum for dualYuv
+ *                           support.
+ *                           [Vijay Kumar Yadav]
+ * @version 1.1(June 2011) : Added parameter required for dualYuv EC.
+ *                           [Vijay]
+ * @version 1.2 (Oct 2011) : Gaps in frame number enhancements
  *                           [Ramakrishna Adireddy]
+ * @version 1.3 (Oct 2011) : Added WaterMark parameters.
+ *                           [Suresh Reddy]
+ * @version 1.4 (July 2012): Added new create time param to support decoding
+ *                           of specific frame types as requested by
+ *                           application [Mahantesh]
 ******************************************************************************
 */
 #ifndef IH264VDEC_
@@ -55,6 +66,7 @@
 #include <ti/xdais/ialg.h>
 #include <ti/xdais/dm/ividdec3.h>
 
+#define IH264VDEC_MAX_LENGTH_PROCESS_LIST (24)
 
 /**
  ******************************************************************************
@@ -67,8 +79,9 @@
  *                 implement the IH264VDEC interface.
  ******************************************************************************
 */
-typedef struct IH264VDEC_Obj {
-    struct IH264VDEC_Fxns *fxns;
+typedef struct IH264VDEC_Obj
+{
+  struct IH264VDEC_Fxns *fxns;
 } IH264VDEC_Obj;
 
 /**
@@ -119,134 +132,162 @@ typedef struct IH264VDEC_Obj {
  *                           based on level & resolution set in create time
  *                           params. Otherwise, it gives out the parsed value
  *
- *  @param reserved[3]      :  Left reserve for future purpose
+ *  @param enableDualOutput  :  This Parameter tells whether Dual output is
+ *                             enable or not. If enable then application needs
+ *                             to provide two extra buffer (one for DualLuma
+ *                             and another for DualChroma.
+ *
+ *  @param reserved[2]      :  Left reserve for future purpose
  *
  ******************************************************************************
 */
-typedef struct IH264VDEC_Status {
-    IVIDDEC3_Status viddec3Status;
-    XDAS_Int32      svcTargetLayerDID;
-    XDAS_Int32      svcTargetLayerTID;
-    XDAS_Int32      svcTargetLayerQID;
-    XDAS_UInt32     debugTraceLevel;
-    XDAS_UInt32     lastNFramesToLog;
-    XDAS_UInt32    *extMemoryDebugTraceAddr;
-    XDAS_UInt32     extMemoryDebugTraceSize;
-    XDAS_UInt32     gapInFrameNum;
-    XDAS_UInt32     spsMaxRefFrames;
-    XDAS_UInt32     reserved[3];
+typedef struct IH264VDEC_Status
+{
+  IVIDDEC3_Status viddec3Status;
+  XDAS_Int32  svcTargetLayerDID;
+  XDAS_Int32  svcTargetLayerTID;
+  XDAS_Int32  svcTargetLayerQID;
+  XDAS_UInt32 debugTraceLevel;
+  XDAS_UInt32 lastNFramesToLog;
+  XDAS_UInt32 *extMemoryDebugTraceAddr;
+  XDAS_UInt32 extMemoryDebugTraceSize;
+  XDAS_UInt32 gapInFrameNum;
+  XDAS_UInt32 spsMaxRefFrames;
+  XDAS_UInt32 enableDualOutput;
+  XDAS_UInt32 reserved[2];
 } IH264VDEC_Status;
 
-/**
-******************************************************************************
-*  @struct IH264VDEC_Params
-*
-*  @brief  This structure defines the creation parameters for all H264VDEC
-*          objects. This structure includes the xdm baseclass creation
-*          parameters and any other implementation specific parameters for
-*          H264 Decoder instance object.
-*
-*  @param  viddec3Params :  XDM Baselass create time parameters.
-*                              (see ividdec3.h)
-*  @param  dpbSizeInFrames:   Number of frames required by the DPB
-*                             (Decoded Picture Buffer). This is the DPB size
-*                             in number of frames. Also, See the enum
-*                             IH264VDEC_dpbNumFrames.
-*  @param  pConstantMemory :  This pointer points to the the memory area where
-*                             constants are located. Default value is NULL in
-*                             which case, codec puts the constants in a
-*                             default section.
-*                             It has to be in DDR addressable space by
-*                             vDMA. This is useful to allow relocatable
-*                             constants for the applications which doesn't use
-*                             M3 as host. Actual memory controller/allocator
-*                             is on another master processor.
-*                             If this is set to NULL then decoder assumes
-*                             that all constants are pointed by symbol
-*                             H264VDEC_TI_ConstData
-*
-*  @param  bitStreamFormat :  Input bit stream format. Input bits stream can
-*                             be IH264VDEC_NAL_UNIT_FORMAT or
-*                             IH264VDEC_BYTE_STREAM_FORMAT. See the enum
-*                             IH264VDEC_bitStreamFormat for details.
-*                             The decoder supports IH264VDEC_BYTE_STREAM_FORMAT
-*                             in both datasync mode and non datasync mode
-*                             (i.e inputDataMode = IVIDEO_ENTIREFRAME).
-*                             But the IH264VDEC_NAL_UNIT_FORMAT is supported
-*                             only in datasync mode, i.e only when
-*                             inputDataMode = IH264VDEC_NALUNIT_SLICEMODE.
-*
-*  @param  errConcealmentMode : If this is set to 1, it means that the YUV
-*                              buffer passed in current process call needs
-*                              concealment. If this is set to 0, it means that
-*                              the YUV buffer passed in current process call
-*                              does not concealment. Note that whether decoder
-*                              actually performed the concealment or not is
-*                              indicated by XDM_APPLIEDCONCEALMENT bit in
-*                              extended error field
-*
-*  @param  temporalDirModePred: Parameter to enable/disable temporal direct
-*                               Prediction mode. 0: Disable, 1:Enable
-*                               If this Parameter is disabled set to 0), and
-*                               if the B slice uses temporal direct mode,
-*                               then the codec returns error for that slice.
-*
-*  @param svcExtensionFlag  : If required to decode SVC streams , set flag
-*                             ON else default set to IH264SVCVDEC_EXT_FLAG
-*
-*  @param  svcTargetLayerDID : SVC Spatial target layer ID,need to read if svc
-*                codec flag (svcExtensionFlag)is on else default
-*                set to IH264SVCVDEC_TARGET_DEFAULT_DID.
-*
-*  @param  svcTargetLayerQID : SVC Quality target layer ID,need to read if svc
-*                codec flag  (svcExtensionFlag) is on else default
-*                set to IH264SVCVDEC_TARGET_DEFAULT_QID.
-*
-*
-*  @param  svcTargetLayerTID : SVC Temporal target layer ID,need to read if svc
-*                codec flag  (svcExtensionFlag)is on else default
-*                set to IH264SVCVDEC_TARGET_DEFAULT_TID.
-*
-*  @param presetLevelIdc   : Level to which decoder has to be configured by the
-*                            application
-*
-*  @param presetProfileIdc : Profile to which decoder has to be configured by
-*                            the application. Currently unused inside codec.
-*
-*  @param  detectCabacAlignErr: This parameter configures the cabac alignment
-*                               error detection
-*
-*  @param  detectIPCMAlignErr: This parameter configures the IPCM alignment
-*                              error detection
-*
-*  @param  debugTraceLevel:  This parameter configures the debug trace level
-*                            for the codec
-*
-*  @param  lastNFramesToLog:  This parameter configures the codec to maintain
-*                             a history of last N frames/pictures
-*
-*  @param reserved[3]      :  Left reserve for future purpose
-*
-******************************************************************************
+ /**
+ ******************************************************************************
+ *  @struct IH264VDEC_Params
+ *
+ *  @brief  This structure defines the creation parameters for all H264VDEC
+ *          objects. This structure includes the xdm baseclass creation
+ *          parameters and any other implementation specific parameters for
+ *          H264 Decoder instance object.
+ *
+ *  @param  viddec3Params :  XDM Baselass create time parameters.
+ *                              (see ividdec3.h)
+ *  @param  dpbSizeInFrames:   Number of frames required by the DPB
+ *                             (Decoded Picture Buffer). This is the DPB size
+ *                             in number of frames. Also, See the enum
+ *                             IH264VDEC_dpbNumFrames.
+ *  @param  pConstantMemory :  This pointer points to the the memory area where
+ *                             constants are located. Default value is NULL in
+ *                             which case, codec puts the constants in a
+ *                             default section.
+ *                             It has to be in DDR addressable space by
+ *                             vDMA. This is useful to allow relocatable
+ *                             constants for the applications which doesn't use
+ *                             M3 as host. Actual memory controller/allocator
+ *                             is on another master processor.
+ *                             If this is set to NULL then decoder assumes
+ *                             that all constants are pointed by symbol
+ *                             H264VDEC_TI_ConstData
+ *
+ *  @param  bitStreamFormat :  Input bit stream format. Input bits stream can
+ *                             be IH264VDEC_NAL_UNIT_FORMAT or
+ *                             IH264VDEC_BYTE_STREAM_FORMAT. See the enum
+ *                             IH264VDEC_bitStreamFormat for details.
+ *                             The decoder supports IH264VDEC_BYTE_STREAM_FORMAT
+ *                             in both datasync mode and non datasync mode
+ *                             (i.e inputDataMode = IVIDEO_ENTIREFRAME).
+ *                             But the IH264VDEC_NAL_UNIT_FORMAT is supported
+ *                             only in datasync mode, i.e only when
+ *                             inputDataMode = IH264VDEC_NALUNIT_SLICEMODE.
+ *
+ *  @param  errConcealmentMode : If this is set to 1, it means that the YUV
+ *                              buffer passed in current process call needs
+ *                              concealment. If this is set to 0, it means that
+ *                              the YUV buffer passed in current process call
+ *                              does not concealment. Note that whether decoder
+ *                              actually performed the concealment or not is
+ *                              indicated by XDM_APPLIEDCONCEALMENT bit in
+ *                              extended error field
+ *
+ *  @param  temporalDirModePred: Parameter to enable/disable temporal direct
+ *                               Prediction mode. 0: Disable, 1:Enable
+ *                               If this Parameter is disabled set to 0), and
+ *                               if the B slice uses temporal direct mode,
+ *                               then the codec returns error for that slice.
+ *
+ *  @param svcExtensionFlag  : If required to decode SVC streams , set flag
+ *                             ON else default set to IH264SVCVDEC_EXT_FLAG
+ *
+ *  @param  svcTargetLayerDID : SVC Spatial target layer ID,need to read if svc
+ *                codec flag (svcExtensionFlag)is on else default
+ *                set to IH264SVCVDEC_TARGET_DEFAULT_DID.
+ *
+ *  @param  svcTargetLayerQID : SVC Quality target layer ID,need to read if svc
+ *                codec flag  (svcExtensionFlag) is on else default
+ *                set to IH264SVCVDEC_TARGET_DEFAULT_QID.
+ *
+ *
+ *  @param  svcTargetLayerTID : SVC Temporal target layer ID,need to read if svc
+ *                codec flag  (svcExtensionFlag)is on else default
+ *                set to IH264SVCVDEC_TARGET_DEFAULT_TID.
+ *
+ *  @param presetLevelIdc   : Level to which decoder has to be configured by the
+ *                            application
+ *
+ *  @param presetProfileIdc : Profile to which decoder has to be configured by
+ *                            the application. Currently unused inside codec.
+ *
+ *  @param  detectCabacAlignErr: This parameter configures the cabac alignment
+ *                               error detection
+ *
+ *  @param  detectIPCMAlignErr: This parameter configures the IPCM alignment
+ *                              error detection
+ *
+ *  @param  debugTraceLevel:  This parameter configures the debug trace level
+ *                            for the codec
+ *
+ *  @param  lastNFramesToLog:  This parameter configures the codec to maintain
+ *                             a history of last N frames/pictures
+ *
+ *  @param enableDualOutput  :  This Parameter tells whether Dual output is
+ *                             enable or not. If enable then application needs
+ *                             to provide two extra buffer (one for DualLuma
+ *                             and another for DualChroma.
+ *
+ *  @param processCallLevel : Flag to select field/frame level process call
+ *
+ *  @param enableWatermark  :  This Parameter tells whether watermark is
+ *                             enabled or not.
+ *
+ *  @param decodeFrameType : Flag to decoder from application to request
+ *                           decoding of only I & IDR or IP or all frame types.
+ *                           Setting of IVIDDEC3_DynamicParams::frameSkipMode =
+ *                           IVIDEO_SKIP_PB or IVIDEO_SKIP_B could have been
+ *                           used for this purpose but it is defined at dynamic
+ *                           level, whereas the intention of this parameter is
+ *                           to have create time indication to codec for lesser
+ *                           memory foot print request. Hence this new parameter
+ *                           is defined.
+ ******************************************************************************
 */
-typedef struct IH264VDEC_Params {
-    IVIDDEC3_Params viddec3Params;
-    XDAS_Int32      dpbSizeInFrames;
-    XDAS_Int32      pConstantMemory;
-    XDAS_Int32      bitStreamFormat;
-    XDAS_UInt32     errConcealmentMode;
-    XDAS_Int32      temporalDirModePred;
-    XDAS_UInt32     svcExtensionFlag;
-    XDAS_Int32      svcTargetLayerDID;
-    XDAS_Int32      svcTargetLayerTID;
-    XDAS_Int32      svcTargetLayerQID;
-    XDAS_Int32      presetLevelIdc;
-    XDAS_Int32      presetProfileIdc;
-    XDAS_UInt32     detectCabacAlignErr;
-    XDAS_UInt32     detectIPCMAlignErr;
-    XDAS_UInt32     debugTraceLevel;
-    XDAS_UInt32     lastNFramesToLog;
-    XDAS_UInt32     reserved[3];
+typedef struct IH264VDEC_Params
+{
+  IVIDDEC3_Params viddec3Params;
+  XDAS_Int32      dpbSizeInFrames;
+  XDAS_Int32      pConstantMemory;
+  XDAS_Int32      bitStreamFormat;
+  XDAS_UInt32     errConcealmentMode;
+  XDAS_Int32      temporalDirModePred;
+  XDAS_UInt32     svcExtensionFlag;
+  XDAS_Int32      svcTargetLayerDID;
+  XDAS_Int32      svcTargetLayerTID;
+  XDAS_Int32      svcTargetLayerQID;
+  XDAS_Int32      presetLevelIdc;
+  XDAS_Int32      presetProfileIdc;
+  XDAS_UInt32     detectCabacAlignErr;
+  XDAS_UInt32     detectIPCMAlignErr;
+  XDAS_UInt32     debugTraceLevel;
+  XDAS_UInt32     lastNFramesToLog;
+  XDAS_UInt32     enableDualOutput;
+  XDAS_Int32      processCallLevel;
+  XDAS_UInt32     enableWatermark;
+  XDAS_UInt32     decodeFrameType;
 } IH264VDEC_Params;
 /**
  ******************************************************************************
@@ -276,21 +317,22 @@ typedef struct IH264VDEC_Params {
  *                codec flag is on else default set to
  *                IH264SVCVDEC_TARGET_DEFAULT_TID.
  *
- *  @param  svcELayerDecode   : Flag to set for enhancement layer decode, default
- *                              value is IH264VDEC_DISABLE_ELAYERDECODE
+ *  @param  svcELayerDecode   : Flag to set for enhancement layer decode,
+ *                              defaultvalue is IH264VDEC_DISABLE_ELAYERDECODE
  *
  *  @param reserved[3]      :  Left reserve for future purpose
  *
  ******************************************************************************
 */
-typedef struct IH264VDEC_DynamicParams {
-    IVIDDEC3_DynamicParams viddec3DynamicParams;
-    XDAS_Int32             deblockFilterMode;
-    XDAS_Int32             svcTargetLayerDID;
-    XDAS_Int32             svcTargetLayerTID;
-    XDAS_Int32             svcTargetLayerQID;
-    XDAS_Int32             svcELayerDecode;
-    XDAS_Int32             reserved[3];
+typedef struct IH264VDEC_DynamicParams
+{
+  IVIDDEC3_DynamicParams viddec3DynamicParams;
+  XDAS_Int32     deblockFilterMode;
+  XDAS_Int32      svcTargetLayerDID;
+  XDAS_Int32      svcTargetLayerTID;
+  XDAS_Int32      svcTargetLayerQID;
+  XDAS_Int32      svcELayerDecode;
+  XDAS_Int32      reserved[3];
 } IH264VDEC_DynamicParams;
 
 /**
@@ -301,10 +343,14 @@ typedef struct IH264VDEC_DynamicParams {
  *          instance object (IH264VDEC::process)
  *
  *  @param  viddec3InArgs : XDM Base class InArgs structure  (see ividdec3.h)
+ *
+ *  @param  lateAcquireArg : XDM Base class InArgs structure  (see ividdec3.h)
  ******************************************************************************
 */
-typedef struct IH264VDEC_InArgs {
-    IVIDDEC3_InArgs viddec3InArgs;
+typedef struct IH264VDEC_InArgs
+{
+  IVIDDEC3_InArgs viddec3InArgs;
+  XDAS_Int32 lateAcquireArg;
 } IH264VDEC_InArgs;
 /**
  ******************************************************************************
@@ -314,11 +360,61 @@ typedef struct IH264VDEC_InArgs {
  *          IH264VDEC::process function
  *
  *  @param  viddec3OutArgs : XDM Base class OutArgs structure  (see ividdec3.h)
+ *
+ *  @param  decryptedKey : This variable contains watermark decrypted key.
  ******************************************************************************
 */
-typedef struct IH264VDEC_OutArgs {
-    IVIDDEC3_OutArgs viddec3OutArgs;
+typedef struct IH264VDEC_OutArgs
+{
+  IVIDDEC3_OutArgs viddec3OutArgs;
+  XDAS_UInt32 decryptedKey;
 } IH264VDEC_OutArgs;
+
+/*
+ *  ======== IH264VDEC_Handle ========
+ *  This handle is used to reference all H264VDEC instance objects
+ */
+typedef struct IH264VDEC_Obj *IH264VDEC_Handle;
+
+/**
+ ******************************************************************************
+ *  @struct IH264VDEC_ProcessParams
+ *
+ *  @brief  This structure defines the container for holding the channel
+ *          information.
+ *
+ *  @param  handle : Handle for the channel.
+ *  @param  inBufs : Input Buffers for the Channel.
+ *  @param  outBufs : Output Buffers for the Channel.
+ *  @param  inArgs : Input Arguments for the Channel.
+ *  @param  outArgs : Output Arguments for the Channel.
+ ******************************************************************************
+*/
+typedef struct IH264VDEC_ProcessParams
+{
+  IH264VDEC_Handle handle;
+  XDM2_BufDesc *inBufs;
+  XDM2_BufDesc *outBufs;
+  IVIDDEC3_InArgs *inArgs;
+  IVIDDEC3_OutArgs *outArgs;
+} IH264VDEC_ProcessParams;
+
+/**
+ ******************************************************************************
+ *  @struct IH264VDEC_ProcessParamsList
+ *
+ *  @brief  This structure defines the container for holding the N channel
+ *          information.
+ *
+ *  @param  numEntries : Number of channels in the given container.
+ *  @param  processParams : Array holding the Process Parameters.
+ ******************************************************************************
+*/
+typedef struct IH264VDEC_ProcessParamsList
+{
+  XDAS_Int32 numEntries ;
+  IH264VDEC_ProcessParams processParams[IH264VDEC_MAX_LENGTH_PROCESS_LIST];
+} IH264VDEC_ProcessParamsList ;
 
 /**
  ******************************************************************************
@@ -331,15 +427,13 @@ typedef struct IH264VDEC_OutArgs {
  *                     XDM interface functions
  ******************************************************************************
 */
-typedef struct IH264VDEC_Fxns {
-    IVIDDEC3_Fxns ividdec3;
+typedef struct IH264VDEC_Fxns
+{
+  IVIDDEC3_Fxns ividdec3;
+  XDAS_Int32 (*processMulti) (IH264VDEC_ProcessParamsList *processList);
 } IH264VDEC_Fxns;
 
-/*
- *  ======== IH264VDEC_Handle ========
- *  This handle is used to reference all H264VDEC instance objects
- */
-typedef struct IH264VDEC_Obj *IH264VDEC_Handle;
+
 
 /*
  *  ======== IH264VDEC_Cmd ========
@@ -351,12 +445,12 @@ typedef IVIDDEC3_Cmd IH264VDEC_Cmd;
  *  ======== IH264VDEC_PARAMS ========
  *  Default parameter values for H264VDEC instance objects
  */
-extern const IH264VDEC_Params    IH264VDEC_PARAMS;
+extern const IH264VDEC_Params IH264VDEC_PARAMS;
 /*
  *  ======== IH264VDEC_DYNAMICPARAMS ========
  *  Default dynamic parameter values for H264VDEC instance objects
  */
-extern const IH264VDEC_DynamicParams    IH264VDEC_TI_DYNAMICPARAMS;
+extern const IH264VDEC_DynamicParams IH264VDEC_TI_DYNAMICPARAMS;
 
 
 /**
@@ -366,25 +460,26 @@ extern const IH264VDEC_DynamicParams    IH264VDEC_TI_DYNAMICPARAMS;
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DEBLOCK_DISABLE_NONE = 0,
-    /**
-    * Perform deblocking across all edges
-    */
-    IH264VDEC_DEBLOCK_DISABLE_ALL,
-    /**
-    * Disable deblocking across all edges
-    */
-    IH264VDEC_DEBLOCK_DISABLE_SLICE_EDGE,
-    /**
-    * Disable deblocking only at slice edges. Internal to slice,
-    * edges are deblocked.
-    */
-    IH264VDEC_DEBLOCK_DEFAULT
-    /**
-    * Perform deblocking as controlled by disable_deblocking_filter_idc of
-    * the bitstream
-    */
+typedef enum
+{
+  IH264VDEC_DEBLOCK_DISABLE_NONE = 0,
+  /**
+  * Perform deblocking across all edges
+  */
+  IH264VDEC_DEBLOCK_DISABLE_ALL,
+  /**
+  * Disable deblocking across all edges
+  */
+  IH264VDEC_DEBLOCK_DISABLE_SLICE_EDGE,
+  /**
+  * Disable deblocking only at slice edges. Internal to slice,
+  * edges are deblocked.
+  */
+  IH264VDEC_DEBLOCK_DEFAULT
+  /**
+  * Perform deblocking as controlled by disable_deblocking_filter_idc of
+  * the bitstream
+  */
 } IH264VDEC_deblockFilterMode;
 
 /**
@@ -395,15 +490,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DISABLE_TEMPORALDIRECT = 0,
-    /**
-    *  Do not decode slice with temporal direct
-    */
-    IH264VDEC_ENABLE_TEMPORALDIRECT
-    /**
-    * Decode slice with temporal direct
-    */
+typedef enum
+{
+  IH264VDEC_DISABLE_TEMPORALDIRECT = 0,
+  /**
+  *  Do not decode slice with temporal direct
+  */
+  IH264VDEC_ENABLE_TEMPORALDIRECT
+  /**
+  * Decode slice with temporal direct
+  */
 } IH264VDEC_temporalDirModePred;
 
 /**
@@ -414,15 +510,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DISABLE_CABACALIGNERR_DETECTION = 0,
-    /**
-    *  Do not detect the CABAC alignment errors
-    */
-    IH264VDEC_ENABLE_CABACALIGNERR_DETECTION
-    /**
-    * Detect the CABAC alignment errors
-    */
+typedef enum
+{
+  IH264VDEC_DISABLE_CABACALIGNERR_DETECTION = 0,
+  /**
+  *  Do not detect the CABAC alignment errors
+  */
+  IH264VDEC_ENABLE_CABACALIGNERR_DETECTION
+  /**
+  * Detect the CABAC alignment errors
+  */
 } IH264VDEC_detectCabacAlignErr;
 
 /**
@@ -433,15 +530,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DISABLE_IPCMALIGNERR_DETECTION = 0,
-    /**
-    *  Do not detect the IPCM alignment errors
-    */
-    IH264VDEC_ENABLE_IPCMALIGNERR_DETECTION
-    /**
-    * Detect the IPCM alignment errors
-    */
+typedef enum
+{
+  IH264VDEC_DISABLE_IPCMALIGNERR_DETECTION = 0,
+  /**
+  *  Do not detect the IPCM alignment errors
+  */
+  IH264VDEC_ENABLE_IPCMALIGNERR_DETECTION
+  /**
+  * Detect the IPCM alignment errors
+  */
 } IH264VDEC_detectIPCMAlignErr;
 
 /**
@@ -451,15 +549,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_NO_CONCEALMENT = 0,
-    /**
-    *  do not apply error concealment
-    */
-    IH264VDEC_APPLY_CONCEALMENT
-    /**
-    * apply error concealment
-    */
+typedef enum
+{
+  IH264VDEC_NO_CONCEALMENT = 0,
+  /**
+  *  do not apply error concealment
+  */
+  IH264VDEC_APPLY_CONCEALMENT
+  /**
+  * apply error concealment
+  */
 } IH264VDEC_errConcealmentMode;
 
 /**
@@ -472,57 +571,57 @@ typedef enum {
  ******************************************************************************
 */
 typedef enum {
-    IH264VDEC_LEVEL1 = 0,
-    /** 0: Level 1
-    */
-    IH264VDEC_LEVEL1B,
-    /** 1: Level 1.b
-    */
-    IH264VDEC_LEVEL11,
-    /** 2: Level 1.1
-    */
-    IH264VDEC_LEVEL12,
-    /** 3: Level 1.2
-    */
-    IH264VDEC_LEVEL13,
-    /** 4: Level 1.3
-    */
-    IH264VDEC_LEVEL2,
-    /** 5: Level 2
-    */
-    IH264VDEC_LEVEL21,
-    /** 6: Level 2.1
-    */
-    IH264VDEC_LEVEL22,
-    /** 7: Level 2.2
-    */
-    IH264VDEC_LEVEL3,
-    /** 8: Level 3
-    */
-    IH264VDEC_LEVEL31,
-    /** 9: Level 3.1
-    */
-    IH264VDEC_LEVEL32,
-    /** 10: Level 3.2
-    */
-    IH264VDEC_LEVEL4,
-    /** 11: Level 4
-    */
-    IH264VDEC_LEVEL41,
-    /** 12: Level 4.1
-    */
-    IH264VDEC_LEVEL42,
-    /** 13: Level 4.2
-    */
-    IH264VDEC_LEVEL5,
-    /** 14: Level 5
-    */
-    IH264VDEC_LEVEL51,
-    /** 15: Level 5.1
-    */
-    IH264VDEC_MAXLEVELID = IH264VDEC_LEVEL51
-                           /** 15: Maximum Level ID that can be configured
-                           */
+ IH264VDEC_LEVEL1 = 0,
+  /** 0: Level 1
+  */
+ IH264VDEC_LEVEL1B,
+  /** 1: Level 1.b
+  */
+ IH264VDEC_LEVEL11,
+  /** 2: Level 1.1
+  */
+ IH264VDEC_LEVEL12,
+  /** 3: Level 1.2
+  */
+ IH264VDEC_LEVEL13,
+  /** 4: Level 1.3
+  */
+ IH264VDEC_LEVEL2,
+  /** 5: Level 2
+  */
+ IH264VDEC_LEVEL21,
+  /** 6: Level 2.1
+  */
+ IH264VDEC_LEVEL22,
+  /** 7: Level 2.2
+  */
+ IH264VDEC_LEVEL3,
+  /** 8: Level 3
+  */
+ IH264VDEC_LEVEL31,
+  /** 9: Level 3.1
+  */
+ IH264VDEC_LEVEL32,
+  /** 10: Level 3.2
+  */
+ IH264VDEC_LEVEL4,
+  /** 11: Level 4
+  */
+ IH264VDEC_LEVEL41,
+  /** 12: Level 4.1
+  */
+ IH264VDEC_LEVEL42,
+  /** 13: Level 4.2
+  */
+ IH264VDEC_LEVEL5,
+  /** 14: Level 5
+  */
+ IH264VDEC_LEVEL51,
+  /** 15: Level 5.1
+  */
+IH264VDEC_MAXLEVELID = IH264VDEC_LEVEL51
+  /** 15: Maximum Level ID that can be configured
+  */
 } IH264VDEC_LevelId;
 
 /**
@@ -536,18 +635,18 @@ typedef enum {
  ******************************************************************************
 */
 typedef enum {
-    IH264VDEC_PROFILE_BASELINE = 0,
-    /** 0: Baseline profile
-    */
-    IH264VDEC_PROFILE_MAIN,
-    /** 1: Main profile
-    */
-    IH264VDEC_PROFILE_HIGH,
-    /** 2: High profile
-    */
-    IH264VDEC_PROFILE_ANY
-    /** 3: As decoded from the bitstream. This is needed to pass compliance.
-    */
+ IH264VDEC_PROFILE_BASELINE = 0,
+  /** 0: Baseline profile
+  */
+ IH264VDEC_PROFILE_MAIN,
+  /** 1: Main profile
+  */
+ IH264VDEC_PROFILE_HIGH,
+  /** 2: High profile
+  */
+ IH264VDEC_PROFILE_ANY
+  /** 3: As decoded from the bitstream. This is needed to pass compliance.
+  */
 } IH264VDEC_ProfileId;
 
 /**
@@ -560,18 +659,18 @@ typedef enum {
  ******************************************************************************
 */
 typedef enum {
-    IH264VDEC_DEBUGTRACE_LEVEL0 = 0,
-    /** 0: Debug Trace Level 0
-    */
-    IH264VDEC_DEBUGTRACE_LEVEL1,
-    /** 1: Debug Trace Level 1
-    */
-    IH264VDEC_DEBUGTRACE_LEVEL2,
-    /** 2: Debug Trace Level 2
-    */
-    IH264VDEC_DEBUGTRACE_LEVEL3
-    /** 2: Debug Trace Level 3
-    */
+ IH264VDEC_DEBUGTRACE_LEVEL0 = 0,
+  /** 0: Debug Trace Level 0
+  */
+ IH264VDEC_DEBUGTRACE_LEVEL1,
+  /** 1: Debug Trace Level 1
+  */
+ IH264VDEC_DEBUGTRACE_LEVEL2,
+  /** 2: Debug Trace Level 2
+  */
+ IH264VDEC_DEBUGTRACE_LEVEL3
+  /** 2: Debug Trace Level 3
+  */
 } IH264VDEC_debugTraceLevel;
 
 /**
@@ -583,27 +682,28 @@ typedef enum {
  *  process call.
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_PARSED_SEI_DATA = XDM_CUSTOMENUMBASE,
-    /** Write out Parsed SEI data
-    *   By setting to this value(for IVIDDEC3_Params::metadataType[i])
-    *   the codec can  can provide the parsed SEI metadata
-    */
+typedef enum
+{
+  IH264VDEC_PARSED_SEI_DATA = XDM_CUSTOMENUMBASE,
+  /** Write out Parsed SEI data
+  *   By setting to this value(for IVIDDEC3_Params::metadataType[i])
+  *   the codec can  can provide the parsed SEI metadata
+  */
 
-    IH264VDEC_ENCODED_SEI_DATA,
-    /** Write out Encoded (compressed) SEI data
-    *
-    */
+  IH264VDEC_ENCODED_SEI_DATA,
+  /** Write out Encoded (compressed) SEI data
+  *
+  */
 
-    IH264VDEC_PARSED_VUI_DATA,
-    /** Write out Parsed VUI data
-    *   By setting to this value(for IVIDDEC3_Params::metadataType[i])
-    *   the codec can  can provide the parsed VUI metadata
-    */
-    IH264VDEC_ENCODED_VUI_DATA
-    /** Write out Encoded (compressed) VUI data
-    *
-    */
+  IH264VDEC_PARSED_VUI_DATA,
+  /** Write out Parsed VUI data
+  *   By setting to this value(for IVIDDEC3_Params::metadataType[i])
+  *   the codec can  can provide the parsed VUI metadata
+  */
+  IH264VDEC_ENCODED_VUI_DATA
+  /** Write out Encoded (compressed) VUI data
+  *
+  */
 
 } IH264VDEC_MetadataType;
 
@@ -617,11 +717,12 @@ typedef enum {
  ******************************************************************************
 */
 
-typedef enum {
-    IH264VDEC_NALUNIT_MODE   = XDM_CUSTOMENUMBASE
-                               /** data in NAL stream format
-                               *
-                               */
+typedef enum
+{
+  IH264VDEC_NALUNIT_MODE   = XDM_CUSTOMENUMBASE
+  /** data in NAL stream format
+  *
+  */
 } IH264VDEC_DataMode;
 
 /**
@@ -633,15 +734,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_BYTE_STREAM_FORMAT = 0,
-    /** Input data is in Byte stream format (stream with start code).
-    *
-    */
-    IH264VDEC_NAL_UNIT_FORMAT
-    /** Input data is in NAL stream format (No start code)
-    *
-    */
+typedef enum
+{
+  IH264VDEC_BYTE_STREAM_FORMAT = 0,
+  /** Input data is in Byte stream format (stream with start code).
+  *
+  */
+  IH264VDEC_NAL_UNIT_FORMAT
+  /** Input data is in NAL stream format (No start code)
+  *
+  */
 } IH264VDEC_bitStreamFormat;
 
 /**
@@ -651,15 +753,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_MB_NOERROR = 0,
-    /**
-    *  MB was non-erroneous
-    */
-    IH264VDEC_MB_ERROR = 1
-                         /**
-                         * MB was erroneous
-                         */
+typedef enum
+{
+  IH264VDEC_MB_NOERROR = 0,
+  /**
+  *  MB was non-erroneous
+  */
+  IH264VDEC_MB_ERROR = 1
+  /**
+  * MB was erroneous
+  */
 } IH264VDEC_mbErrStatus;
 
 /**
@@ -676,150 +779,153 @@ typedef enum {
  *              condition
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_ERR_NOSLICE = 0,
+typedef enum
+{
+  IH264VDEC_ERR_NOSLICE = 0,
     /**<
     * Bit 0
     *  1 - No error-free slice header detected in the frame
     *  0 - Ignore
     */
-    IH264VDEC_ERR_SPS,
+  IH264VDEC_ERR_SPS,
     /**<
     * Bit 1
     *  1 - Error in SPS parsing
     *  0 - Ignore
     */
-    IH264VDEC_ERR_PPS,
+  IH264VDEC_ERR_PPS,
     /**<
     * Bit 2
     *  1 -  Error during PPS parsing
     *  0 - Ignore
     */
-    IH264VDEC_ERR_SLICEHDR,
+  IH264VDEC_ERR_SLICEHDR,
     /**<
     * Bit 3
     *  1 - Error in slice header parsing
     *  0 - Ignore
     */
-    IH264VDEC_ERR_MBDATA,
+  IH264VDEC_ERR_MBDATA,
     /**<
     * Bit 4
     *  1 -  Error in MB data parsing
     *  0 - Ignore
     */
-    IH264VDEC_ERR_UNAVAILABLESPS,
+  IH264VDEC_ERR_UNAVAILABLESPS,
     /**<
     * Bit 5
     *  1 - SPS rferred in the header is not available.
     *  0 - Ignore
     */
-    IH264VDEC_ERR_UNAVAILABLEPPS,
+  IH264VDEC_ERR_UNAVAILABLEPPS,
     /**<
     * Bit 6
     *  1 -  PPS rferred in the header is not available
     *  0 - Ignore
     */
-    IH264VDEC_ERR_INVALIDPARAM_IGNORE,
+  IH264VDEC_ERR_INVALIDPARAM_IGNORE,
     /**<
     * Bit 7
     *  1 -  Invalid Parameter
     *  0 - Ignore
     */
-    IH264VDEC_ERR_UNSUPPFEATURE = 16,
-    /**<
-  * Bit 16
-  *  1 -  Unsupported feature
-  *  0 - Ignore
-  */
-    IH264VDEC_ERR_METADATA_BUFOVERFLOW,
-    /**<
-  * Bit 17
-  *  1 - SEI Buffer overflow detected
-  *  0 - Ignore
-  */
-    IH264VDEC_ERR_STREAM_END,
+  IH264VDEC_ERR_UNSUPPFEATURE = 16,
+      /**<
+    * Bit 16
+    *  1 -  Unsupported feature
+    *  0 - Ignore
+    */
+  IH264VDEC_ERR_METADATA_BUFOVERFLOW,
+      /**<
+    * Bit 17
+    *  1 - SEI Buffer overflow detected
+    *  0 - Ignore
+    */
+  IH264VDEC_ERR_STREAM_END,
     /**<
     * Bit 18
     *  1 - End of stream reached
     *  0 - Ignore
     */
-    IH264VDEC_ERR_NO_FREEBUF,
+  IH264VDEC_ERR_NO_FREEBUF,
     /**<
     * Bit 19
     *  1 - No free buffers available for reference storing reference frame
     *  0 - Ignore
     */
-    IH264VDEC_ERR_PICSIZECHANGE,
+  IH264VDEC_ERR_PICSIZECHANGE,
     /**<
     * Bit 20
     *  1 - Change in resolution detected
     *  0 - Ignore
     */
-    IH264VDEC_ERR_UNSUPPRESOLUTION,
+  IH264VDEC_ERR_UNSUPPRESOLUTION,
     /**<
     * Bit 21
     *  1 - Unsupported resolution by the decoder
     *  0 - Ignore
     */
-    IH264VDEC_ERR_NUMREF_FRAMES,
+  IH264VDEC_ERR_NUMREF_FRAMES,
     /**<
     * Bit 22
     *  1 - maxNumRefFrames parameter is not compliant to stream properties
     *     (does not comply to stream requirements).
     *  0 - Ignore
     */
-    IH264VDEC_ERR_INVALID_MBOX_MESSAGE,
+  IH264VDEC_ERR_INVALID_MBOX_MESSAGE,
     /**<
     * Bit 23
     *  1 - Invalid (unexpected) mail box message received by M3 or IVAHD
     *  0 - Ignore
     */
-    IH264VDEC_ERR_DATA_SYNC,
+  IH264VDEC_ERR_DATA_SYNC,
     /**<
     * Bit 24
     *  1 - In datasync enable mode, the input supplied is wrong
     *  0 - Ignore
     */
-    IH264VDEC_ERR_MISSINGSLICE,
+  IH264VDEC_ERR_MISSINGSLICE,
     /**<
     * Bit 25
     *  1 - Missing slice in a frame
     *  0 - Ignore
     */
-    IH264VDEC_ERR_INPUT_DATASYNC_PARAMS,
+  IH264VDEC_ERR_INPUT_DATASYNC_PARAMS,
     /**<
     * Bit 26
     *  1 - Input datasync enable mode, the input parameter is wrong
     *  0 - Ignore
     */
-    IH264VDEC_ERR_HDVICP2_IMPROPER_STATE,
+  IH264VDEC_ERR_HDVICP2_IMPROPER_STATE,
     /**<
     * Bit 27
     *  1 - IVAHD standby failed or couldn't turn-on/off the IP's clock
     *      or HDVICP reset failed.
     *  0 - Ignore
     */
-    IH264VDEC_ERR_TEMPORAL_DIRECT_MODE,
+  IH264VDEC_ERR_TEMPORAL_DIRECT_MODE,
     /**<
     * Bit 28
     *  1 - Temporal direct mode is present in the bits stream
     *      when disableTemporalDirect parameter (create time) is set.
     *  0 - Ignore
     */
-    IH264VDEC_ERR_DISPLAYWIDTH,
+  IH264VDEC_ERR_DISPLAYWIDTH,
     /**<
     * Bit 29
     *  1 - DisplayWidth is less than the Image width + Padded width.
     *  0 - Ignore
     */
-    IH264VDEC_ERR_NOHEADER,
+  IH264VDEC_ERR_NOHEADER,
     /**<
     * Bit 30
     *  1 - Indicates that no SPS/PPS header is decoded in the current
     *      process call.
+    * (or) It indicates that watermark SEI data is unavailable even though
+    *      watermark parameter is enabled.
     *  0 - Ignore
     */
-    IH264VDEC_ERR_GAPSINFRAMENUM
+  IH264VDEC_ERR_GAPSINFRAMENUM
     /**<
     * Bit 31
     *  1 - Indicates that a gap is detected in frame_num for a stream with
@@ -834,15 +940,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DISABLE_SVCEXTENSION = 0,
-    /**
-    * Do not support SVC extension
-    */
-    IH264VDEC_ENABLE_SVCEXTENSION
-    /**
-    * Support SVC extension
-    */
+typedef enum
+{
+  IH264VDEC_DISABLE_SVCEXTENSION = 0,
+  /**
+  * Do not support SVC extension
+  */
+  IH264VDEC_ENABLE_SVCEXTENSION
+  /**
+  * Support SVC extension
+  */
 } IH264VDEC_svcExtension;
 
 /**
@@ -853,15 +960,16 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DISABLE_ELAYERDECODE = 0,
-    /**
-    * Decode base layer only. Do not decode enhancement layer
-    */
-    IH264VDEC_ENABLE_ELAYERDECODE
-    /**
-    * Support decoding of enhancement layer
-    */
+typedef enum
+{
+  IH264VDEC_DISABLE_ELAYERDECODE = 0,
+  /**
+  * Decode base layer only. Do not decode enhancement layer
+  */
+  IH264VDEC_ENABLE_ELAYERDECODE
+  /**
+  * Support decoding of enhancement layer
+  */
 } IH264VDEC_ELAYERDECODEMODE;
 
 
@@ -872,49 +980,50 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_TARGET_DID_DEFAULT = -1,
-    /**
-    * Default dependancy layer ID.
-    */
-    IH264VDEC_TARGET_DID_ZERO = 0,
-    /**
-    * Dependancy layer ID = 0
-    */
-    IH264VDEC_TARGET_DID_ONE,
-    /**
-    * Dependancy layer ID = 1
-    */
-    IH264VDEC_TARGET_DID_TWO,
-    /**
-    * Dependancy layer ID = 2
-    */
-    IH264VDEC_TARGET_DID_THREE,
-    /**
-    * Dependancy layer ID = 3
-    */
-    IH264VDEC_TARGET_DID_FOUR,
-    /**
-    * Dependancy layer ID = 4
-    */
-    IH264VDEC_TARGET_DID_FIVE,
-    /**
-    * Dependancy layer ID = 5
-    */
-    IH264VDEC_TARGET_DID_SIX,
-    /**
-    * Dependancy layer ID = 6
-    */
-    IH264VDEC_TARGET_DID_SEVEN,
-    /**
-    * Dependancy layer ID = 7
-    */
-    IH264VDEC_TARGET_DID_MAX =
-        IH264VDEC_TARGET_DID_SEVEN
-        /**
-        * Dependancy layer max ID = 7
-        */
-} IH264VDEC_dependancyLayerIds;
+typedef enum
+{
+  IH264VDEC_TARGET_DID_DEFAULT = -1,
+  /**
+  * Default dependancy layer ID.
+  */
+  IH264VDEC_TARGET_DID_ZERO = 0,
+  /**
+  * Dependancy layer ID = 0
+  */
+  IH264VDEC_TARGET_DID_ONE,
+  /**
+  * Dependancy layer ID = 1
+  */
+  IH264VDEC_TARGET_DID_TWO,
+  /**
+  * Dependancy layer ID = 2
+  */
+  IH264VDEC_TARGET_DID_THREE,
+  /**
+  * Dependancy layer ID = 3
+  */
+  IH264VDEC_TARGET_DID_FOUR,
+  /**
+  * Dependancy layer ID = 4
+  */
+  IH264VDEC_TARGET_DID_FIVE,
+  /**
+  * Dependancy layer ID = 5
+  */
+  IH264VDEC_TARGET_DID_SIX,
+  /**
+  * Dependancy layer ID = 6
+  */
+  IH264VDEC_TARGET_DID_SEVEN,
+  /**
+  * Dependancy layer ID = 7
+  */
+  IH264VDEC_TARGET_DID_MAX =
+  IH264VDEC_TARGET_DID_SEVEN
+  /**
+  * Dependancy layer max ID = 7
+  */
+  } IH264VDEC_dependancyLayerIds;
 
 /**
  ******************************************************************************
@@ -923,49 +1032,50 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_TARGET_TID_DEFAULT = -1,
-    /**
-    * Default Temporal layer ID.
-    */
-    IH264VDEC_TARGET_TID_ZERO = 0,
-    /**
-    * Temporal layer ID = 0
-    */
-    IH264VDEC_TARGET_TID_ONE,
-    /**
-    * Temporal layer ID = 1
-    */
-    IH264VDEC_TARGET_TID_TWO,
-    /**
-    * Temporal layer ID = 2
-    */
-    IH264VDEC_TARGET_TID_THREE,
-    /**
-    * Temporal layer ID = 3
-    */
-    IH264VDEC_TARGET_TID_FOUR,
-    /**
-    * Temporal layer ID = 4
-    */
-    IH264VDEC_TARGET_TID_FIVE,
-    /**
-    * Temporal layer ID = 5
-    */
-    IH264VDEC_TARGET_TID_SIX,
-    /**
-    * Temporal layer ID = 6
-    */
-    IH264VDEC_TARGET_TID_SEVEN,
-    /**
-    * Temporal layer ID = 7
-    */
-    IH264VDEC_TARGET_TID_MAX =
-        IH264VDEC_TARGET_TID_SEVEN
-        /**
-        * Temporal layer max ID = 7
-        */
-} IH264VDEC_temporalLayerIds;
+typedef enum
+{
+  IH264VDEC_TARGET_TID_DEFAULT = -1,
+  /**
+  * Default Temporal layer ID.
+  */
+  IH264VDEC_TARGET_TID_ZERO = 0,
+  /**
+  * Temporal layer ID = 0
+  */
+  IH264VDEC_TARGET_TID_ONE,
+  /**
+  * Temporal layer ID = 1
+  */
+  IH264VDEC_TARGET_TID_TWO,
+  /**
+  * Temporal layer ID = 2
+  */
+  IH264VDEC_TARGET_TID_THREE,
+  /**
+  * Temporal layer ID = 3
+  */
+  IH264VDEC_TARGET_TID_FOUR,
+  /**
+  * Temporal layer ID = 4
+  */
+  IH264VDEC_TARGET_TID_FIVE,
+  /**
+  * Temporal layer ID = 5
+  */
+  IH264VDEC_TARGET_TID_SIX,
+  /**
+  * Temporal layer ID = 6
+  */
+  IH264VDEC_TARGET_TID_SEVEN,
+  /**
+  * Temporal layer ID = 7
+  */
+  IH264VDEC_TARGET_TID_MAX =
+  IH264VDEC_TARGET_TID_SEVEN
+  /**
+  * Temporal layer max ID = 7
+  */
+  } IH264VDEC_temporalLayerIds;
 
 /**
  ******************************************************************************
@@ -974,80 +1084,81 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_TARGET_QID_DEFAULT = -1,
-    /**
-    * Default Quality layer ID.
-    */
-    IH264VDEC_TARGET_QID_ZERO = 0,
-    /**
-    * Quality layer ID = 0
-    */
-    IH264VDEC_TARGET_QID_ONE,
-    /**
-    * Quality layer ID = 1
-    */
-    IH264VDEC_TARGET_QID_TWO,
-    /**
-    * Quality layer ID = 2
-    */
-    IH264VDEC_TARGET_QID_THREE,
-    /**
-    * Quality layer ID = 3
-    */
-    IH264VDEC_TARGET_QID_FOUR,
-    /**
-    * Quality layer ID = 4
-    */
-    IH264VDEC_TARGET_QID_FIVE,
-    /**
-    * Quality layer ID = 5
-    */
-    IH264VDEC_TARGET_QID_SIX,
-    /**
-    * Quality layer ID = 6
-    */
-    IH264VDEC_TARGET_QID_SEVEN,
-    /**
-    * Quality layer ID = 7
-    */
-    IH264VDEC_TARGET_QID_EIGHT,
-    /**
-    * Quality layer max ID = 8
-    */
-    IH264VDEC_TARGET_QID_NINE,
-    /**
-    * Quality layer max ID = 9
-    */
-    IH264VDEC_TARGET_QID_TEN,
-    /**
-    * Quality layer max ID = 10
-    */
-    IH264VDEC_TARGET_QID_ELEVEN,
-    /**
-    * Quality layer max ID = 11
-    */
-    IH264VDEC_TARGET_QID_TWELVE,
-    /**
-    * Quality layer max ID = 12
-    */
-    IH264VDEC_TARGET_QID_THIRTEEN,
-    /**
-    * Quality layer max ID = 13
-    */
-    IH264VDEC_TARGET_QID_FOURTEEN,
-    /**
-    * Quality layer max ID = 14
-    */
-    IH264VDEC_TARGET_QID_FIFTEEN,
-    /**
-    * Quality layer max ID = 15
-    */
-    IH264VDEC_TARGET_QID_MAX =
-        IH264VDEC_TARGET_QID_FIFTEEN
-        /**
-        * Quality layer max ID = 15
-        */
+typedef enum
+{
+  IH264VDEC_TARGET_QID_DEFAULT = -1,
+  /**
+  * Default Quality layer ID.
+  */
+  IH264VDEC_TARGET_QID_ZERO = 0,
+  /**
+  * Quality layer ID = 0
+  */
+  IH264VDEC_TARGET_QID_ONE,
+  /**
+  * Quality layer ID = 1
+  */
+  IH264VDEC_TARGET_QID_TWO,
+  /**
+  * Quality layer ID = 2
+  */
+  IH264VDEC_TARGET_QID_THREE,
+  /**
+  * Quality layer ID = 3
+  */
+  IH264VDEC_TARGET_QID_FOUR,
+  /**
+  * Quality layer ID = 4
+  */
+  IH264VDEC_TARGET_QID_FIVE,
+  /**
+  * Quality layer ID = 5
+  */
+  IH264VDEC_TARGET_QID_SIX,
+  /**
+  * Quality layer ID = 6
+  */
+  IH264VDEC_TARGET_QID_SEVEN,
+  /**
+  * Quality layer ID = 7
+  */
+  IH264VDEC_TARGET_QID_EIGHT,
+  /**
+  * Quality layer max ID = 8
+  */
+  IH264VDEC_TARGET_QID_NINE,
+  /**
+  * Quality layer max ID = 9
+  */
+  IH264VDEC_TARGET_QID_TEN,
+  /**
+  * Quality layer max ID = 10
+  */
+  IH264VDEC_TARGET_QID_ELEVEN,
+  /**
+  * Quality layer max ID = 11
+  */
+  IH264VDEC_TARGET_QID_TWELVE,
+  /**
+  * Quality layer max ID = 12
+  */
+  IH264VDEC_TARGET_QID_THIRTEEN,
+  /**
+  * Quality layer max ID = 13
+  */
+  IH264VDEC_TARGET_QID_FOURTEEN,
+  /**
+  * Quality layer max ID = 14
+  */
+  IH264VDEC_TARGET_QID_FIFTEEN,
+  /**
+  * Quality layer max ID = 15
+  */
+  IH264VDEC_TARGET_QID_MAX =
+  IH264VDEC_TARGET_QID_FIFTEEN
+  /**
+  * Quality layer max ID = 15
+  */
 } IH264VDEC_qualityLayerIds;
 
 /**
@@ -1057,16 +1168,98 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_PAYLOAD_NO_OVERFLOW = 0,
-    /**
-    * Indicates there is no overflow occured in user data reg or unreg sei
-    */
-    IH264VDEC_PAYLOAD_OVERFLOW
-    /**
-    * Indicates there is a overflow in user data reg or unreg sei
-    */
+typedef enum
+{
+  IH264VDEC_PAYLOAD_NO_OVERFLOW = 0,
+  /**
+  * Indicates there is no overflow occured in user data reg or unreg sei
+  */
+  IH264VDEC_PAYLOAD_OVERFLOW
+  /**
+  * Indicates there is a overflow in user data reg or unreg sei
+  */
 } IH264VDEC_seiOverFlowFlag;
+
+/**
+ ******************************************************************************
+ *  @enum       IH264VDEC_enableDualOutput
+ *  @brief      This enum is used to enable/disable dual output feature
+ *
+ ******************************************************************************
+*/
+typedef enum
+{
+  IH264VDEC_DUALOUTPUT_DISABLE = 0,
+  /**
+  * Indicates that dual output is disabled
+  */
+  IH264VDEC_DUALOUTPUT_ENABLE
+  /**
+  * Indicates that dual output is enabled
+  */
+} IH264VDEC_enableDualOutput;
+
+/**
+ ******************************************************************************
+ *  @enum       IH264VDEC_processCallLevel
+ *  @brief      This enum indicates whether process call is done at a field
+ *              level or frame level
+ *
+ ******************************************************************************
+*/
+typedef enum
+{
+  IH264VDEC_FIELDLEVELPROCESSCALL = 0,
+  /**
+  * Indicates that process call should be at field level
+  */
+  IH264VDEC_FRAMELEVELPROCESSCALL
+  /**
+  * Indicates that process call should be at frame level
+  */
+} IH264VDEC_processCallLevel;
+
+/**
+ ******************************************************************************
+ *  @enum       IH264VDEC_enableWaterMark
+ *  @brief      This enum is used to enable/disable Watermark feature
+ *
+ ******************************************************************************
+*/
+typedef enum
+{
+  IH264VDEC_WATERMARK_DISABLE = 0,
+  /**
+  * Indicates that Watermark is disabled
+  */
+  IH264VDEC_WATERMARK_ENABLE
+  /**
+  * Indicates that Watermark is enabled
+  */
+} IH264VDEC_enableWaterMark;
+
+/**
+ ******************************************************************************
+ *  @enum       IH264VDEC_decodeFrameType
+ *  @brief      This enum is used to request decoder to decode only I, IP or ALL
+ *              frame types
+ ******************************************************************************
+*/
+typedef enum
+{
+  IH264VDEC_DECODE_ALL = 0,
+  /**
+  * Indicates that all type of frames decoding is enabled
+  */
+   IH264VDEC_DECODE_IP_ONLY = 1,
+  /**
+  * Indicates that only I/IDR and P frames decoding is enabled
+  */
+   IH264VDEC_DECODE_I_ONLY = 2
+  /**
+  * Indicates that only I/IDR frames decoding is enabled
+  */
+} IH264VDEC_decodeFrameType;
 
 /**
  *  Macro definitions required for SEI support: HRD sequence parameter set
@@ -1105,17 +1298,18 @@ typedef enum {
  *  @param  time_offset_length : Length in bits of time_offset syntax element
  ******************************************************************************
 */
-typedef struct IH264VDEC_HrdParams {
-    XDAS_UInt32 cpb_cnt_minus1;
-    XDAS_UInt8  bit_rate_scale;
-    XDAS_UInt8  cpb_size_scale;
-    XDAS_UInt32 bit_rate_value_minus1[IH264VDEC_MAXCPBCNT];
-    XDAS_UInt32 cpb_size_value_minus1[IH264VDEC_MAXCPBCNT];
-    XDAS_UInt8  vbr_cbr_flag[IH264VDEC_MAXCPBCNT];
-    XDAS_UInt8  initial_cpb_removal_delay_length_minus1;
-    XDAS_UInt8  cpb_removal_delay_length_minus1;
-    XDAS_UInt8  dpb_output_delay_length_minus1;
-    XDAS_UInt8  time_offset_length;
+typedef struct IH264VDEC_HrdParams
+{
+  XDAS_UInt32  cpb_cnt_minus1;
+  XDAS_UInt8   bit_rate_scale;
+  XDAS_UInt8   cpb_size_scale;
+  XDAS_UInt32  bit_rate_value_minus1[IH264VDEC_MAXCPBCNT];
+  XDAS_UInt32  cpb_size_value_minus1[IH264VDEC_MAXCPBCNT];
+  XDAS_UInt8   vbr_cbr_flag[IH264VDEC_MAXCPBCNT];
+  XDAS_UInt8   initial_cpb_removal_delay_length_minus1;
+  XDAS_UInt8   cpb_removal_delay_length_minus1;
+  XDAS_UInt8   dpb_output_delay_length_minus1;
+  XDAS_UInt8   time_offset_length;
 } IH264VDEC_HrdParams;
 
 /**
@@ -1146,7 +1340,8 @@ typedef struct IH264VDEC_HrdParams {
  *                          svc_vui_ext_fixed_frame_rate_flag
  *                          are present for current coded
  *                          sequence or not.
- *  @param  svc_vui_ext_num_units_in_tick: specifies the value of num_units_in_tick
+ *  @param  svc_vui_ext_num_units_in_tick: specifies the value of
+ *                                         num_units_in_tick
  *  @param  svc_vui_ext_time_scale: specifies the value of time_scale
  *  @param  svc_vui_ext_fixed_frame_rate_flag: specifies the value of
  *                         fixed_frame_rate_flag
@@ -1162,20 +1357,21 @@ typedef struct IH264VDEC_HrdParams {
  ******************************************************************************
 */
 
-typedef struct sIH264VDEC_SVCVuiParams {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt16 svc_vui_ext_num_entries_minus1;
-    XDAS_UInt16 svc_vui_ext_dependency_id;
-    XDAS_UInt16 svc_vui_ext_quality_id;
-    XDAS_UInt16 svc_vui_ext_temporal_id;
-    XDAS_UInt16 svc_vui_ext_timing_info_present_flag;
-    XDAS_UInt32 svc_vui_ext_num_units_in_tick;
-    XDAS_UInt32 svc_vui_ext_time_scale;
-    XDAS_UInt16 svc_vui_ext_fixed_frame_rate_flag;
-    XDAS_UInt16 svc_vui_ext_nal_hrd_parameters_present_flag;
-    XDAS_UInt16 svc_vui_ext_vcl_hrd_parameters_present_flag;
-    XDAS_UInt16 svc_vui_ext_low_delay_hrd_flag;
-    XDAS_UInt16 svc_vui_ext_pic_struct_present_flag;
+typedef struct sIH264VDEC_SVCVuiParams
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt16 svc_vui_ext_num_entries_minus1;
+  XDAS_UInt16 svc_vui_ext_dependency_id;
+  XDAS_UInt16 svc_vui_ext_quality_id;
+  XDAS_UInt16 svc_vui_ext_temporal_id;
+  XDAS_UInt16 svc_vui_ext_timing_info_present_flag;
+  XDAS_UInt32 svc_vui_ext_num_units_in_tick;
+  XDAS_UInt32 svc_vui_ext_time_scale;
+  XDAS_UInt16 svc_vui_ext_fixed_frame_rate_flag;
+  XDAS_UInt16 svc_vui_ext_nal_hrd_parameters_present_flag;
+  XDAS_UInt16 svc_vui_ext_vcl_hrd_parameters_present_flag;
+  XDAS_UInt16 svc_vui_ext_low_delay_hrd_flag;
+  XDAS_UInt16 svc_vui_ext_pic_struct_present_flag;
 } IH264VDEC_SVCVuiParams;
 
 /**
@@ -1253,44 +1449,45 @@ typedef struct sIH264VDEC_SVCVuiParams {
  *
  ******************************************************************************
 */
-typedef struct IH264VDEC_VuiParams {
-    XDAS_UInt32            parsed_flag;
-    XDAS_UInt8             aspect_ratio_info_present_flag;
-    XDAS_UInt32            aspect_ratio_idc;
-    XDAS_UInt32            sar_width;
-    XDAS_UInt32            sar_height;
-    XDAS_UInt8             overscan_info_present_flag;
-    XDAS_UInt8             overscan_appropriate_flag;
-    XDAS_UInt8             video_signal_type_present_flag;
-    XDAS_UInt8             video_format;
-    XDAS_UInt8             video_full_range_flag;
-    XDAS_UInt8             colour_description_present_flag;
-    XDAS_UInt8             colour_primaries;
-    XDAS_UInt8             transfer_characteristics;
-    XDAS_UInt8             matrix_coefficients;
-    XDAS_UInt8             chroma_location_info_present_flag;
-    XDAS_UInt32            chroma_sample_loc_type_top_field;
-    XDAS_UInt32            chroma_sample_loc_type_bottom_field;
-    XDAS_UInt8             timing_info_present_flag;
-    XDAS_UInt32            num_units_in_tick;
-    XDAS_UInt32            time_scale;
-    XDAS_UInt8             fixed_frame_rate_flag;
-    XDAS_UInt8             nal_hrd_parameters_present_flag;
-    IH264VDEC_HrdParams    nal_hrd_pars;
-    XDAS_UInt8             vcl_hrd_parameters_present_flag;
-    IH264VDEC_HrdParams    vcl_hrd_pars;
-    XDAS_UInt8             low_delay_hrd_flag;
-    XDAS_UInt8             pic_struct_present_flag;
-    XDAS_UInt8             bitstream_restriction_flag;
-    XDAS_UInt8             motion_vectors_over_pic_boundaries_flag;
-    XDAS_UInt32            max_bytes_per_pic_denom;
-    XDAS_UInt32            max_bits_per_mb_denom;
-    XDAS_UInt32            log2_max_mv_length_vertical;
-    XDAS_UInt32            log2_max_mv_length_horizontal;
-    XDAS_UInt32            max_dec_frame_reordering;
-    XDAS_UInt32            num_reorder_frames;
-    XDAS_UInt32            max_dec_frame_buffering;
-    IH264VDEC_SVCVuiParams svcVuiParams;
+typedef struct IH264VDEC_VuiParams
+{
+  XDAS_UInt32  parsed_flag;
+  XDAS_UInt8   aspect_ratio_info_present_flag;
+  XDAS_UInt32  aspect_ratio_idc;
+  XDAS_UInt32  sar_width;
+  XDAS_UInt32  sar_height;
+  XDAS_UInt8   overscan_info_present_flag;
+  XDAS_UInt8   overscan_appropriate_flag;
+  XDAS_UInt8   video_signal_type_present_flag;
+  XDAS_UInt8   video_format;
+  XDAS_UInt8   video_full_range_flag;
+  XDAS_UInt8   colour_description_present_flag;
+  XDAS_UInt8   colour_primaries;
+  XDAS_UInt8   transfer_characteristics;
+  XDAS_UInt8   matrix_coefficients;
+  XDAS_UInt8   chroma_location_info_present_flag;
+  XDAS_UInt32  chroma_sample_loc_type_top_field;
+  XDAS_UInt32  chroma_sample_loc_type_bottom_field;
+  XDAS_UInt8   timing_info_present_flag;
+  XDAS_UInt32  num_units_in_tick;
+  XDAS_UInt32  time_scale;
+  XDAS_UInt8   fixed_frame_rate_flag;
+  XDAS_UInt8   nal_hrd_parameters_present_flag;
+  IH264VDEC_HrdParams   nal_hrd_pars;
+  XDAS_UInt8   vcl_hrd_parameters_present_flag;
+  IH264VDEC_HrdParams   vcl_hrd_pars;
+  XDAS_UInt8   low_delay_hrd_flag;
+  XDAS_UInt8   pic_struct_present_flag;
+  XDAS_UInt8   bitstream_restriction_flag;
+  XDAS_UInt8   motion_vectors_over_pic_boundaries_flag;
+  XDAS_UInt32  max_bytes_per_pic_denom;
+  XDAS_UInt32  max_bits_per_mb_denom;
+  XDAS_UInt32  log2_max_mv_length_vertical;
+  XDAS_UInt32  log2_max_mv_length_horizontal;
+  XDAS_UInt32  max_dec_frame_reordering;
+  XDAS_UInt32  num_reorder_frames;
+  XDAS_UInt32  max_dec_frame_buffering;
+  IH264VDEC_SVCVuiParams svcVuiParams;
 } IH264VDEC_VuiParams;
 
 /**
@@ -1313,13 +1510,14 @@ typedef struct IH264VDEC_VuiParams {
  *                            array size i.e., IH264VDEC_MAXUSERDATA_PAYLOAD.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiUserDataRegITUT {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 num_payload_bytes;
-    XDAS_UInt8  itu_t_t35_country_code;
-    XDAS_UInt8  itu_t_t35_country_code_extension_byte;
-    XDAS_UInt8  itu_t_t35_payload_byte[IH264VDEC_MAXUSERDATA_PAYLOAD];
-    XDAS_UInt8  dataOverflowFlag;
+typedef struct IH264VDEC_SeiUserDataRegITUT
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 num_payload_bytes;
+  XDAS_UInt8  itu_t_t35_country_code;
+  XDAS_UInt8  itu_t_t35_country_code_extension_byte;
+  XDAS_UInt8  itu_t_t35_payload_byte[IH264VDEC_MAXUSERDATA_PAYLOAD];
+  XDAS_UInt8  dataOverflowFlag;
 } IH264VDEC_SeiUserDataRegITUT;
 
 /**
@@ -1340,12 +1538,13 @@ typedef struct IH264VDEC_SeiUserDataRegITUT {
  *                            array size i.e., IH264VDEC_MAXUSERDATA_PAYLOAD.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiUserDataUnReg {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 num_payload_bytes;
-    XDAS_UInt8  uuid_iso_iec_11578[16];
-    XDAS_UInt8  user_data_payload_byte[IH264VDEC_MAXUSERDATA_PAYLOAD];
-    XDAS_UInt8  dataOverflowFlag;
+typedef struct IH264VDEC_SeiUserDataUnReg
+{
+  XDAS_UInt32  parsed_flag;
+  XDAS_UInt32  num_payload_bytes;
+  XDAS_UInt8   uuid_iso_iec_11578[16];
+  XDAS_UInt8   user_data_payload_byte[IH264VDEC_MAXUSERDATA_PAYLOAD];
+  XDAS_UInt8   dataOverflowFlag;
 } IH264VDEC_SeiUserDataUnReg;
 
 
@@ -1380,13 +1579,14 @@ typedef struct IH264VDEC_SeiUserDataUnReg {
  *          delivery time of coded access units to the CPB
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiBufferingPeriod {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 seq_parameter_set_id;
-    XDAS_UInt32 nal_cpb_removal_delay[IH264VDEC_MAXCPBCNT];
-    XDAS_UInt32 nal_cpb_removal_delay_offset[IH264VDEC_MAXCPBCNT];
-    XDAS_UInt32 vcl_cpb_removal_delay[IH264VDEC_MAXCPBCNT];
-    XDAS_UInt32 vcl_cpb_removal_delay_offset[IH264VDEC_MAXCPBCNT];
+typedef struct IH264VDEC_SeiBufferingPeriod
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 seq_parameter_set_id;
+  XDAS_UInt32 nal_cpb_removal_delay[IH264VDEC_MAXCPBCNT];
+  XDAS_UInt32 nal_cpb_removal_delay_offset[IH264VDEC_MAXCPBCNT];
+  XDAS_UInt32 vcl_cpb_removal_delay[IH264VDEC_MAXCPBCNT];
+  XDAS_UInt32 vcl_cpb_removal_delay_offset[IH264VDEC_MAXCPBCNT];
 }IH264VDEC_SeiBufferingPeriod;
 /**
  ******************************************************************************
@@ -1421,16 +1621,17 @@ typedef struct IH264VDEC_SeiBufferingPeriod {
  *          video sequence shall be present in the bit-stream
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiPanScanRect {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 pan_scan_rect_id;
-    XDAS_UInt32 pan_scan_rect_cancel_flag;
-    XDAS_UInt32 pan_scan_cnt_minus1;
-    XDAS_Int32  pan_scan_rect_left_offset[3];
-    XDAS_Int32  pan_scan_rect_right_offset[3];
-    XDAS_Int32  pan_scan_rect_top_offset[3];
-    XDAS_Int32  pan_scan_rect_bottom_offset[3];
-    XDAS_UInt32 pan_scan_rect_repetition_period;
+typedef struct IH264VDEC_SeiPanScanRect
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 pan_scan_rect_id;
+  XDAS_UInt32  pan_scan_rect_cancel_flag;
+  XDAS_UInt32 pan_scan_cnt_minus1;
+  XDAS_Int32 pan_scan_rect_left_offset[3];
+  XDAS_Int32 pan_scan_rect_right_offset[3];
+  XDAS_Int32 pan_scan_rect_top_offset[3];
+  XDAS_Int32 pan_scan_rect_bottom_offset[3];
+  XDAS_UInt32 pan_scan_rect_repetition_period;
 } IH264VDEC_SeiPanScanRect;
 
 /**
@@ -1449,7 +1650,8 @@ typedef struct IH264VDEC_SeiPanScanRect {
  *          frames in the tagged set of consecutive coded pictures
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiProgRefineStart {
+typedef struct IH264VDEC_SeiProgRefineStart
+{
     XDAS_UInt32 parsed_flag;
     XDAS_UInt32 progressive_refinement_id;
     XDAS_UInt32 num_refinement_steps_minus1;
@@ -1468,9 +1670,10 @@ typedef struct IH264VDEC_SeiProgRefineStart {
  *                    the progressive refinement operation.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiProgRefineEnd {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 progressive_refinement_id;
+typedef struct IH264VDEC_SeiProgRefineEnd
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 progressive_refinement_id;
 } IH264VDEC_SeiProgRefineEnd;
 /**
  ******************************************************************************
@@ -1498,12 +1701,13 @@ typedef struct IH264VDEC_SeiProgRefineEnd {
  *          period.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiRecoveryPointInfo {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 recovery_frame_cnt;
-    XDAS_UInt32 exact_match_flag;
-    XDAS_UInt32 broken_link_flag;
-    XDAS_UInt32 changing_slice_group_idc;
+typedef struct IH264VDEC_SeiRecoveryPointInfo
+{
+  XDAS_UInt32  parsed_flag;
+  XDAS_UInt32  recovery_frame_cnt;
+  XDAS_UInt32  exact_match_flag;
+  XDAS_UInt32  broken_link_flag;
+  XDAS_UInt32  changing_slice_group_idc;
 } IH264VDEC_SeiRecoveryPointInfo;
 
 /**
@@ -1569,27 +1773,28 @@ typedef struct IH264VDEC_SeiRecoveryPointInfo {
  *                              clockTimestamp
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiPictureTiming {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 NumClockTs;
-    XDAS_UInt32 cpb_removal_delay;
-    XDAS_UInt32 dpb_output_delay;
-    XDAS_UInt32 pic_struct;
-    XDAS_UInt32 clock_time_stamp_flag[4];
-    XDAS_UInt32 ct_type[4];
-    XDAS_UInt32 nuit_field_based_flag[4];
-    XDAS_UInt32 counting_type[4];
-    XDAS_UInt32 full_timestamp_flag[4];
-    XDAS_UInt32 discontinuity_flag[4];
-    XDAS_UInt32 cnt_dropped_flag[4];
-    XDAS_UInt32 n_frames[4];
-    XDAS_UInt32 seconds_flag[4];
-    XDAS_UInt32 minutes_flag[4];
-    XDAS_UInt32 hours_flag[4];
-    XDAS_UInt32 seconds_value[4];
-    XDAS_UInt32 minutes_value[4];
-    XDAS_UInt32 hours_value[4];
-    XDAS_Int32  time_offset[4];
+typedef struct IH264VDEC_SeiPictureTiming
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 NumClockTs;
+  XDAS_UInt32 cpb_removal_delay;
+  XDAS_UInt32 dpb_output_delay;
+  XDAS_UInt32 pic_struct;
+  XDAS_UInt32 clock_time_stamp_flag[4];
+  XDAS_UInt32 ct_type[4];
+  XDAS_UInt32 nuit_field_based_flag[4];
+  XDAS_UInt32 counting_type[4];
+  XDAS_UInt32 full_timestamp_flag[4];
+  XDAS_UInt32 discontinuity_flag[4];
+  XDAS_UInt32 cnt_dropped_flag[4];
+  XDAS_UInt32 n_frames[4];
+  XDAS_UInt32 seconds_flag[4];
+  XDAS_UInt32 minutes_flag[4];
+  XDAS_UInt32 hours_flag[4];
+  XDAS_UInt32 seconds_value[4];
+  XDAS_UInt32 minutes_value[4];
+  XDAS_UInt32 hours_value[4];
+  XDAS_Int32 time_offset[4];
 }IH264VDEC_SeiPictureTiming;
 /**
  ******************************************************************************
@@ -1605,9 +1810,10 @@ typedef struct IH264VDEC_SeiPictureTiming {
  *            the full-frame freeze SEI message
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiFullFrameFreezeRep {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 full_frame_freeze_repetition_period;
+typedef struct IH264VDEC_SeiFullFrameFreezeRep
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 full_frame_freeze_repetition_period;
 } IH264VDEC_SeiFullFrameFreezeRep;
 
 /**
@@ -1622,9 +1828,10 @@ typedef struct IH264VDEC_SeiFullFrameFreezeRep {
  *  @param  payloadSize : Size of the frame_freeze_release payload
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiFullFrameFreezeRel {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 payloadSize;
+typedef struct IH264VDEC_SeiFullFrameFreezeRel
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 payloadSize;
 } IH264VDEC_SeiFullFrameFreezeRel;
 
 /**
@@ -1663,14 +1870,15 @@ typedef struct IH264VDEC_SeiFullFrameFreezeRel {
  *                  picture for inter prediction.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiStereoVideoInfo {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 field_views_flag;
-    XDAS_UInt32 top_field_is_left_view_flag;
-    XDAS_UInt32 current_frame_is_left_view_flag;
-    XDAS_UInt32 next_frame_is_second_view_flag;
-    XDAS_UInt32 left_view_self_contained_flag;
-    XDAS_UInt32 right_view_self_contained_flag;
+typedef struct IH264VDEC_SeiStereoVideoInfo
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 field_views_flag;
+  XDAS_UInt32 top_field_is_left_view_flag;
+  XDAS_UInt32 current_frame_is_left_view_flag;
+  XDAS_UInt32 next_frame_is_second_view_flag;
+  XDAS_UInt32 left_view_self_contained_flag;
+  XDAS_UInt32 right_view_self_contained_flag;
 } IH264VDEC_SeiStereoVideoInfo;
 
 /**
@@ -1760,26 +1968,27 @@ typedef struct IH264VDEC_SeiStereoVideoInfo {
  *                1 - Reserved for the future use.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiFramePacking {
-    XDAS_UInt32 parsed_flag;
-    XDAS_UInt32 frame_packing_arrangement_id;
-    XDAS_UInt32 frame_packing_arrangement_repetition_period;
-    XDAS_UInt8  frame_packing_arrangement_cancel_flag;
-    XDAS_UInt8  frame_packing_arrangement_type;
-    XDAS_UInt8  quincunx_sampling_flag;
-    XDAS_UInt8  content_interpretation_type;
-    XDAS_UInt8  spatial_flipping_flag;
-    XDAS_UInt8  frame0_flipped_flag;
-    XDAS_UInt8  field_views_flag;
-    XDAS_UInt8  current_frame_is_frame0_flag;
-    XDAS_UInt8  frame0_self_contained_flag;
-    XDAS_UInt8  frame1_self_contained_flag;
-    XDAS_UInt8  frame0_grid_position_x;
-    XDAS_UInt8  frame0_grid_position_y;
-    XDAS_UInt8  frame1_grid_position_x;
-    XDAS_UInt8  frame1_grid_position_y;
-    XDAS_UInt8  frame_packing_arrangement_reserved_byte;
-    XDAS_UInt8  frame_packing_arrangement_extension_flag;
+typedef struct IH264VDEC_SeiFramePacking
+{
+  XDAS_UInt32 parsed_flag;
+  XDAS_UInt32 frame_packing_arrangement_id;
+  XDAS_UInt32 frame_packing_arrangement_repetition_period;
+  XDAS_UInt8  frame_packing_arrangement_cancel_flag;
+  XDAS_UInt8  frame_packing_arrangement_type;
+  XDAS_UInt8  quincunx_sampling_flag;
+  XDAS_UInt8  content_interpretation_type;
+  XDAS_UInt8  spatial_flipping_flag;
+  XDAS_UInt8  frame0_flipped_flag;
+  XDAS_UInt8  field_views_flag;
+  XDAS_UInt8  current_frame_is_frame0_flag;
+  XDAS_UInt8  frame0_self_contained_flag;
+  XDAS_UInt8  frame1_self_contained_flag;
+  XDAS_UInt8  frame0_grid_position_x;
+  XDAS_UInt8  frame0_grid_position_y;
+  XDAS_UInt8  frame1_grid_position_x;
+  XDAS_UInt8  frame1_grid_position_y;
+  XDAS_UInt8  frame_packing_arrangement_reserved_byte;
+  XDAS_UInt8  frame_packing_arrangement_extension_flag;
 } IH264VDEC_SeiFramePacking;
 
 
@@ -1819,20 +2028,21 @@ typedef struct IH264VDEC_SeiFramePacking {
  *      pair of picture forming stereo view content.
  ******************************************************************************
 */
-typedef struct IH264VDEC_SeiMessages {
-    XDAS_UInt32                     parsed_flag;
-    IH264VDEC_SeiFullFrameFreezeRep full_frame_freeze;
-    IH264VDEC_SeiFullFrameFreezeRel full_frame_freeze_release;
-    IH264VDEC_SeiProgRefineStart    prog_refine_start;
-    IH264VDEC_SeiProgRefineEnd      prog_refine_end;
-    IH264VDEC_SeiUserDataRegITUT    user_data_registered;
-    IH264VDEC_SeiUserDataUnReg      user_data_unregistered;
-    IH264VDEC_SeiBufferingPeriod    buffering_period_info;
-    IH264VDEC_SeiPanScanRect        pan_scan_rect;
-    IH264VDEC_SeiRecoveryPointInfo  recovery_pt_info;
-    IH264VDEC_SeiPictureTiming      pic_timing;
-    IH264VDEC_SeiStereoVideoInfo    stereo_video_info;
-    IH264VDEC_SeiFramePacking       frame_packing;
+typedef struct IH264VDEC_SeiMessages
+{
+  XDAS_UInt32                  parsed_flag;
+  IH264VDEC_SeiFullFrameFreezeRep full_frame_freeze;
+  IH264VDEC_SeiFullFrameFreezeRel    full_frame_freeze_release;
+  IH264VDEC_SeiProgRefineStart           prog_refine_start;
+  IH264VDEC_SeiProgRefineEnd             prog_refine_end;
+  IH264VDEC_SeiUserDataRegITUT    user_data_registered;
+  IH264VDEC_SeiUserDataUnReg      user_data_unregistered;
+  IH264VDEC_SeiBufferingPeriod             buffering_period_info;
+  IH264VDEC_SeiPanScanRect               pan_scan_rect;
+  IH264VDEC_SeiRecoveryPointInfo         recovery_pt_info;
+  IH264VDEC_SeiPictureTiming               pic_timing;
+  IH264VDEC_SeiStereoVideoInfo       stereo_video_info;
+  IH264VDEC_SeiFramePacking       frame_packing;
 } IH264VDEC_SeiMessages;
 
 /**
@@ -1850,11 +2060,12 @@ typedef struct IH264VDEC_SeiMessages {
  *
  ******************************************************************************
 */
-typedef struct IH264VDEC_MbxTraceData {
-    XDAS_UInt8 userId;
-    XDAS_UInt8 message;
-    XDAS_UInt8 rwMode;
-    XDAS_UInt8 rsvd;
+typedef struct IH264VDEC_MbxTraceData
+{
+  XDAS_UInt8 userId;
+  XDAS_UInt8 message;
+  XDAS_UInt8 rwMode;
+  XDAS_UInt8 rsvd;
 }IH264VDEC_MbxTraceData;
 
 /**
@@ -1886,17 +2097,18 @@ typedef struct IH264VDEC_MbxTraceData {
  *  @param  noOfSlices : Number of lices in the picture
  ******************************************************************************
 */
-typedef struct IH264VDEC_ProfileInfo {
-    XDAS_UInt32            hostPreIva;
-    XDAS_UInt32            preMbLoop;
-    XDAS_UInt32            inMbLoop;
-    XDAS_UInt32            postMbLoop;
-    XDAS_UInt32            hostPostIva;
-    XDAS_UInt32            ivahdTotalCycles;
-    XDAS_UInt32            sliceTask[136];
-    XDAS_UInt32            noOfSlices;
-    IH264VDEC_MbxTraceData mbxTraceArray[NUM_MBX_TRACE_ELEMENTS];
-    XDAS_UInt16            mbxtraceIdx;
+typedef struct IH264VDEC_ProfileInfo
+{
+  XDAS_UInt32 hostPreIva;
+  XDAS_UInt32 preMbLoop;
+  XDAS_UInt32 inMbLoop;
+  XDAS_UInt32 postMbLoop;
+  XDAS_UInt32 hostPostIva;
+  XDAS_UInt32 ivahdTotalCycles;
+  XDAS_UInt32 sliceTask[136];
+  XDAS_UInt32 noOfSlices;
+  IH264VDEC_MbxTraceData mbxTraceArray[NUM_MBX_TRACE_ELEMENTS];
+  XDAS_UInt16 mbxtraceIdx;
 } IH264VDEC_ProfileInfo;
 
 /**
@@ -1977,47 +2189,79 @@ typedef struct IH264VDEC_ProfileInfo {
  *
  *  @param  prev_pic_bottom_field : this variable Indicates if the previous
  *                                  picture was a bottom field or not (a Flag)
+ *
+ *  @param  currFrameYDual        : Base Address of the current decoded Luma
+ *                                  frame buffer pointer (physical pointer)
+ *                                  for dual yuv output.
+ *
+ *  @param  currFrameUVDual       : Base Address of the current decoded Chroma
+ *                                  frame buffer pointer (physical pointer)
+ *                                  for dual yuv output.
+ *
+ *  @param  ref_widthDual         : Resultant Horizontal LUMA picture size
+ *                                  after Pad size addition on both Left
+ *                                  & Right sides. This gets used as
+ *                                  stride during vDMA programming.
+ *                                  In case of TILER,the stride is fixed,
+ *                                  independant of Picture width, and
+ *                                  only changes with TILER mode.
+ *
+ *  @param  ref_width_cDual       : Resultant Horizontal CHROMA picture size
+ *                                  after Pad size addition on both Left &
+ *                                  Right sides.
+ *
  ******************************************************************************
 */
 
-typedef struct _sErrConcealStr {
-    XDAS_Int32  ErrConcealmentEnable;
-    XDAS_Int32  CurrMbInfoBufPointer;
-    XDAS_Int32  CurrMbStatusBufPointer;
-    XDAS_Int32  CurrMbInfoIresBufPointer;
-    XDAS_Int32  currFrameY;
-    XDAS_Int32  currFrameUV;
-    XDAS_Int32  refConclY;
-    XDAS_Int32  refConclUV;
-    XDAS_UInt32 TilerBaseAddress;
-    XDAS_UInt16 ref_width;
-    XDAS_UInt16 ref_width_c;
-    XDAS_UInt16 ref_frame_height;
-    XDAS_UInt16 mb_width;
-    XDAS_UInt16 mb_height;
-    XDAS_UInt16 image_width;
-    XDAS_UInt16 image_height;
-    XDAS_UInt8  frameType;
-    XDAS_UInt8  picaff_frame;
-    XDAS_UInt8  mb_aff_frame_flag;
-    XDAS_UInt8  field_pic_flag;
-    XDAS_UInt8  bottom_field_flag;
-    XDAS_UInt8  nonPairedFieldPic;
-    XDAS_UInt8  prev_pic_bottom_field;
+typedef struct _sErrConcealStr
+{
+  XDAS_Int32  ErrConcealmentEnable;
+  XDAS_Int32  CurrMbInfoBufPointer;
+  XDAS_Int32  CurrMbStatusBufPointer;
+  XDAS_Int32  CurrMbInfoIresBufPointer;
+  XDAS_Int32  currFrameY;
+  XDAS_Int32  currFrameUV;
+  XDAS_Int32  refConclY;
+  XDAS_Int32  refConclUV;
+  XDAS_UInt32 TilerBaseAddress;
+  XDAS_UInt16 ref_width;
+  XDAS_UInt16 ref_width_c;
+  XDAS_UInt16 ref_frame_height;
+  XDAS_UInt16 mb_width;
+  XDAS_UInt16 mb_height;
+  XDAS_UInt16 image_width;
+  XDAS_UInt16 image_height;
+  XDAS_UInt8  frameType;
+  XDAS_UInt8  picaff_frame;
+  XDAS_UInt8  mb_aff_frame_flag;
+  XDAS_UInt8  field_pic_flag;
+  XDAS_UInt8  bottom_field_flag;
+  XDAS_UInt8  nonPairedFieldPic;
+  XDAS_UInt8  prev_pic_bottom_field;
+  XDAS_Int32  currFrameYDual;
+  XDAS_Int32  currFrameUVDual;
+  XDAS_UInt16 ref_widthDual;
+  XDAS_UInt16 ref_width_cDual;
+  XDAS_UInt16 rsvd[2];
 }sErrConcealStr;
 
 /**
  *  Size of sliceinfo flags - We have two slice info flag arrays in SL2, one
  *  for ECD3 and the other for MC3. ECD3 flag is one bit per MB. Since Maximum
- *  supported number of MBs in a frame is 128 x 128 = 16384, we need 16384/8 =
- *  2048 bytes for the slice info flag array for ECD3. But for the MC3 array,
- *  we always make the next bit also as 1 to enable loading into ping and pong
- *  memories of MCBUF. So we need an extra bit for the MC3 array, to avoid
- *  buffer overflow when the last MB is a new slice. To keep the next SL2 buffer
- *  in 16-byte aligned position (some buffers need it) we round the size to next
- *  multiple of 16, i.e., 2064.
+ *  supported number of MBs in a frame for Low resolution is 128 x 128 = 16384,
+ *  and for High resolution 256*256 = 65536. So we need 16384/8 = 2048 bytes
+ *  for Low resolution and 65536/8 = 8192 for High resolution to store slice
+ *  info flag array for ECD3. But for the MC3 array, we always make the next
+ *  bit also as 1 to enable loading into ping and pong memories of MCBUF.
+ *  So we need an extra bit for the MC3 array, to avoid buffer overflow when
+ *  the last MB is a new slice. To keep the next SL2 buffer in 16-byte aligned
+ *  position (some buffers need it) we round the size to next multiple of 16,
+ *  i.e., 2064 and 8208 for Low and High resolutions respectively.
+ *  As we are maintaining only one decoder image in M3, we define
+ *  SLICEINFO_FLAGSIZE as 8208 (maximum among 2064 and 8208).
 */
-#define SLICEINFO_FLAGSIZE  2064
+#define SLICEINFO_FLAGSIZE_HIGHRES  8208
+#define SLICEINFO_FLAGSIZE_LOWRES   2064
 
 /**
  ******************************************************************************
@@ -2033,9 +2277,10 @@ typedef struct _sErrConcealStr {
  *
  ******************************************************************************
 */
-typedef struct _sErrConcealLayerStr {
-    sErrConcealStr sECStr;
-    XDAS_UInt8     pSliceInfoFlags[SLICEINFO_FLAGSIZE];
+typedef struct _sErrConcealLayerStr
+{
+  sErrConcealStr sECStr;
+  XDAS_UInt8 pSliceInfoFlags[SLICEINFO_FLAGSIZE_HIGHRES];
 }sErrConcealLayerStr;
 
 /**
@@ -2046,85 +2291,86 @@ typedef struct _sErrConcealLayerStr {
  *  @details
  ******************************************************************************
 */
-typedef enum {
-    IH264VDEC_DPB_NUMFRAMES_AUTO = -1,
-    /**<
-     * Allow the decoder to choose the number of reference frames based on the
-     * stream information.
-     */
-    IH264VDEC_DPB_NUMFRAMES_0 = 0,
+typedef enum
+{
+  IH264VDEC_DPB_NUMFRAMES_AUTO = -1,
+   /**<
+    * Allow the decoder to choose the number of reference frames based on the
+    * stream information.
+    */
+  IH264VDEC_DPB_NUMFRAMES_0 = 0,
     /**<
     * Number of frames required is 0
     */
-    IH264VDEC_DPB_NUMFRAMES_1 = 1,
+  IH264VDEC_DPB_NUMFRAMES_1 = 1,
     /**<
     * Number of frames required is 1
     */
-    IH264VDEC_DPB_NUMFRAMES_2 = 2,
+  IH264VDEC_DPB_NUMFRAMES_2 = 2,
     /**<
     * Number of frames required is 2
     */
-    IH264VDEC_DPB_NUMFRAMES_3 = 3,
+  IH264VDEC_DPB_NUMFRAMES_3 = 3,
     /**<
     * Number of frames required is 3
     */
-    IH264VDEC_DPB_NUMFRAMES_4 = 4,
-    /**<
-  * Number of frames required is 4
-  */
-    IH264VDEC_DPB_NUMFRAMES_5 = 5,
+  IH264VDEC_DPB_NUMFRAMES_4 = 4,
+      /**<
+    * Number of frames required is 4
+    */
+  IH264VDEC_DPB_NUMFRAMES_5 = 5,
     /**<
     * Number of frames required is 5
     */
-    IH264VDEC_DPB_NUMFRAMES_6 = 6,
+  IH264VDEC_DPB_NUMFRAMES_6 = 6,
     /**<
     * Number of frames required is 6
     */
-    IH264VDEC_DPB_NUMFRAMES_7 = 7,
-    /**<
-  * Number of frames required is 7
-  */
-    IH264VDEC_DPB_NUMFRAMES_8 = 8,
+  IH264VDEC_DPB_NUMFRAMES_7 = 7,
+      /**<
+    * Number of frames required is 7
+    */
+  IH264VDEC_DPB_NUMFRAMES_8 = 8,
     /**<
     * Number of frames required is 8
     */
-    IH264VDEC_DPB_NUMFRAMES_9 = 9,
+  IH264VDEC_DPB_NUMFRAMES_9 = 9,
     /**<
     * Number of frames required is 9
     */
-    IH264VDEC_DPB_NUMFRAMES_10 = 10,
+  IH264VDEC_DPB_NUMFRAMES_10 = 10,
     /**<
     * Number of frames required is 10
     */
-    IH264VDEC_DPB_NUMFRAMES_11 = 11,
+  IH264VDEC_DPB_NUMFRAMES_11 = 11,
     /**<
     * Number of frames required is 11
     */
-    IH264VDEC_DPB_NUMFRAMES_12 = 12,
+  IH264VDEC_DPB_NUMFRAMES_12 = 12,
     /**<
     * Number of frames required is 12
     */
-    IH264VDEC_DPB_NUMFRAMES_13 = 13,
+  IH264VDEC_DPB_NUMFRAMES_13 = 13,
     /**<
     * Number of frames required is 13
     */
-    IH264VDEC_DPB_NUMFRAMES_14 = 14,
+  IH264VDEC_DPB_NUMFRAMES_14 = 14,
     /**<
     * Number of frames required is 14
     */
-    IH264VDEC_DPB_NUMFRAMES_15 = 15,
+  IH264VDEC_DPB_NUMFRAMES_15 = 15,
     /**<
     * Number of frames required is 15
     */
-    IH264VDEC_DPB_NUMFRAMES_16 = 16,
+  IH264VDEC_DPB_NUMFRAMES_16 = 16,
     /**<
     * Number of frames required is 16
     */
-    IH264VDEC_DPB_NUMFRAMES_DEFAULT = IH264VDEC_DPB_NUMFRAMES_AUTO
-                                      /**<
-                                       * Allow the decoder to choose the number of reference frames based on the
-                                       * stream information.
-                                       */
+  IH264VDEC_DPB_NUMFRAMES_DEFAULT = IH264VDEC_DPB_NUMFRAMES_AUTO
+   /**<
+    * Allow the decoder to choose the number of reference frames based on the
+    * stream information.
+    */
 } IH264VDEC_dpbNumFrames;
 
 /**
@@ -2137,11 +2383,12 @@ typedef enum {
  ******************************************************************************
 */
 
-typedef enum {
-    IH264VDEC_SETERRCONCEALMODE   = 15
-                                    /** SVC error concealment mode ID
-                                    *
-                                    */
+typedef enum
+{
+  IH264VDEC_SETERRCONCEALMODE   = 15
+  /** SVC error concealment mode ID
+  *
+  */
 } IH264VDEC_SVCErrConcealMode;
 
 /**
@@ -2152,22 +2399,23 @@ typedef enum {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_CommonInfo {
-    XDAS_UInt32 codec_type : 8;
-    XDAS_UInt32 fmt_type : 8;
-    XDAS_UInt32 mb_ll_avail : 1;
-    XDAS_UInt32 mb_ul_avail : 1;
-    XDAS_UInt32 mb_uu_avail : 1;
-    XDAS_UInt32 mb_ur_avail : 1;
-    XDAS_UInt32 pic_bound_l : 1;
-    XDAS_UInt32 pic_bound_u : 1;
-    XDAS_UInt32 pic_bound_r : 1;
-    XDAS_UInt32 pic_bound_b : 1;
-    XDAS_UInt32 first_mb_flag : 1;
-    XDAS_UInt32 error_flag : 1;
-    XDAS_UInt32 zero : 6;
-    XDAS_UInt32 zeroes : 16;
-    XDAS_UInt32 mb_addr : 16;
+typedef struct _IH264VDEC_TI_CommonInfo
+{
+  XDAS_UInt32 codec_type:8;
+  XDAS_UInt32 fmt_type:8;
+  XDAS_UInt32 mb_ll_avail:1;
+  XDAS_UInt32 mb_ul_avail:1;
+  XDAS_UInt32 mb_uu_avail:1;
+  XDAS_UInt32 mb_ur_avail:1;
+  XDAS_UInt32 pic_bound_l:1;
+  XDAS_UInt32 pic_bound_u:1;
+  XDAS_UInt32 pic_bound_r:1;
+  XDAS_UInt32 pic_bound_b:1;
+  XDAS_UInt32 first_mb_flag:1;
+  XDAS_UInt32 error_flag:1;
+  XDAS_UInt32 zero:6;
+  XDAS_UInt32 zeroes:16;
+  XDAS_UInt32 mb_addr:16;
 
 } IH264VDEC_TI_CommonInfo;
 
@@ -2179,9 +2427,10 @@ typedef struct _IH264VDEC_TI_CommonInfo {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_MotionVector {
-    XDAS_Int16 x;
-    XDAS_Int16 y;
+typedef struct _IH264VDEC_TI_MotionVector
+{
+  XDAS_Int16 x;
+  XDAS_Int16 y;
 } IH264VDEC_TI_MotionVector;
 
 /**
@@ -2192,9 +2441,10 @@ typedef struct _IH264VDEC_TI_MotionVector {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_CabacContext {
-    IH264VDEC_TI_MotionVector mvd_l0[4];
-    IH264VDEC_TI_MotionVector mvd_l1[4];
+typedef struct _IH264VDEC_TI_CabacContext
+{
+  IH264VDEC_TI_MotionVector   mvd_l0[4];
+  IH264VDEC_TI_MotionVector   mvd_l1[4];
 
 } IH264VDEC_TI_CabacContext;
 
@@ -2206,11 +2456,12 @@ typedef struct _IH264VDEC_TI_CabacContext {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_TotalCoefLuma {
-    XDAS_UInt8 right[3];
-    XDAS_UInt8 bottom_right;
-    XDAS_UInt8 bottom[3];
-    XDAS_UInt8 zero;
+typedef struct _IH264VDEC_TI_TotalCoefLuma
+{
+  XDAS_UInt8 right[3];
+  XDAS_UInt8 bottom_right;
+  XDAS_UInt8 bottom[3];
+  XDAS_UInt8 zero;
 } IH264VDEC_TI_TotalCoefLuma;
 
 /**
@@ -2221,15 +2472,16 @@ typedef struct _IH264VDEC_TI_TotalCoefLuma {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_TotalCoefChroma {
-    XDAS_UInt8 right_cb;
-    XDAS_UInt8 bottom_right_cb;
-    XDAS_UInt8 bottom_cb;
-    XDAS_UInt8 zero;
-    XDAS_UInt8 right_cr;
-    XDAS_UInt8 bottom_right_cr;
-    XDAS_UInt8 bottom_cr;
-    XDAS_UInt8 zero1;
+typedef struct _IH264VDEC_TI_TotalCoefChroma
+{
+  XDAS_UInt8 right_cb;
+  XDAS_UInt8 bottom_right_cb;
+  XDAS_UInt8 bottom_cb;
+  XDAS_UInt8 zero;
+  XDAS_UInt8 right_cr;
+  XDAS_UInt8 bottom_right_cr;
+  XDAS_UInt8 bottom_cr;
+  XDAS_UInt8 zero1;
 } IH264VDEC_TI_TotalCoefChroma;
 
 /**
@@ -2240,10 +2492,11 @@ typedef struct _IH264VDEC_TI_TotalCoefChroma {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_CavlcContext {
-    unsigned long long           zeroes[2];
-    IH264VDEC_TI_TotalCoefLuma   total_coef_luma;
-    IH264VDEC_TI_TotalCoefChroma total_coef_chroma;
+typedef struct _IH264VDEC_TI_CavlcContext
+{
+  unsigned long long zeroes[2];
+  IH264VDEC_TI_TotalCoefLuma    total_coef_luma;
+  IH264VDEC_TI_TotalCoefChroma  total_coef_chroma;
 
 } IH264VDEC_TI_CavlcContext;
 
@@ -2255,23 +2508,24 @@ typedef struct _IH264VDEC_TI_CavlcContext {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_IntraPredMode {
-    XDAS_UInt32 ipred_mode0 : 4;
-    XDAS_UInt32 ipred_mode1 : 4;
-    XDAS_UInt32 ipred_mode2 : 4;
-    XDAS_UInt32 ipred_mode3 : 4;
-    XDAS_UInt32 ipred_mode4 : 4;
-    XDAS_UInt32 ipred_mode5 : 4;
-    XDAS_UInt32 ipred_mode6 : 4;
-    XDAS_UInt32 ipred_mode7 : 4;
-    XDAS_UInt32 ipred_mode8 : 4;
-    XDAS_UInt32 ipred_mode9 : 4;
-    XDAS_UInt32 ipred_mode10 : 4;
-    XDAS_UInt32 ipred_mode11 : 4;
-    XDAS_UInt32 ipred_mode12 : 4;
-    XDAS_UInt32 ipred_mode13 : 4;
-    XDAS_UInt32 ipred_mode14 : 4;
-    XDAS_UInt32 ipred_mode15 : 4;
+typedef struct _IH264VDEC_TI_IntraPredMode
+{
+  XDAS_UInt32 ipred_mode0:4;
+  XDAS_UInt32 ipred_mode1:4;
+  XDAS_UInt32 ipred_mode2:4;
+  XDAS_UInt32 ipred_mode3:4;
+  XDAS_UInt32 ipred_mode4:4;
+  XDAS_UInt32 ipred_mode5:4;
+  XDAS_UInt32 ipred_mode6:4;
+  XDAS_UInt32 ipred_mode7:4;
+  XDAS_UInt32 ipred_mode8:4;
+  XDAS_UInt32 ipred_mode9:4;
+  XDAS_UInt32 ipred_mode10:4;
+  XDAS_UInt32 ipred_mode11:4;
+  XDAS_UInt32 ipred_mode12:4;
+  XDAS_UInt32 ipred_mode13:4;
+  XDAS_UInt32 ipred_mode14:4;
+  XDAS_UInt32 ipred_mode15:4;
 
 } IH264VDEC_TI_IntraPredMode;
 
@@ -2284,23 +2538,24 @@ typedef struct _IH264VDEC_TI_IntraPredMode {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_MbPredType {
-    XDAS_UInt32 mbskip : 1;
-    XDAS_UInt32 tr8x8 : 1;
-    XDAS_UInt32 mb_field : 1;
-    XDAS_UInt32 cond_mbskip : 1;
-    XDAS_UInt32 c_ipred_mode : 2;
-    XDAS_UInt32 zero : 1;
-    XDAS_UInt32 end_of_slice : 1;
-    XDAS_UInt32 mb_y_mod2 : 1;
-    XDAS_UInt32 zero1 : 7;
-    XDAS_UInt32 refidx_equal_flag_l0 : 1;
-    XDAS_UInt32 refidx_equal_flag_l1 : 1;
-    XDAS_UInt32 mv_equal_flag_l0 : 1;
-    XDAS_UInt32 mv_equal_flag_l1 : 1;
-    XDAS_UInt32 zeroes : 4;
-    XDAS_UInt32 mb_type : 8;
-    XDAS_UInt8  sub_mb_type[4];
+typedef struct _IH264VDEC_TI_MbPredType
+{
+  XDAS_UInt32 mbskip:1;
+  XDAS_UInt32 tr8x8:1;
+  XDAS_UInt32 mb_field:1;
+  XDAS_UInt32 cond_mbskip:1;
+  XDAS_UInt32 c_ipred_mode:2;
+  XDAS_UInt32 zero:1;
+  XDAS_UInt32 end_of_slice:1;
+  XDAS_UInt32 mb_y_mod2:1;
+  XDAS_UInt32 zero1:7;
+  XDAS_UInt32 refidx_equal_flag_l0:1;
+  XDAS_UInt32 refidx_equal_flag_l1:1;
+  XDAS_UInt32 mv_equal_flag_l0:1;
+  XDAS_UInt32 mv_equal_flag_l1:1;
+  XDAS_UInt32 zeroes:4;
+  XDAS_UInt32 mb_type:8;
+  XDAS_UInt8 sub_mb_type[4];
 
 } IH264VDEC_TI_MbPredType;
 
@@ -2312,12 +2567,13 @@ typedef struct _IH264VDEC_TI_MbPredType {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_QpCbp {
-    XDAS_UInt32 cbp;
-    XDAS_UInt8  qp_y;
-    XDAS_UInt8  qp_cb;
-    XDAS_UInt8  qp_cr;
-    XDAS_UInt8  zero;
+typedef struct _IH264VDEC_TI_QpCbp
+{
+  XDAS_UInt32 cbp;
+  XDAS_UInt8 qp_y;
+  XDAS_UInt8 qp_cb;
+  XDAS_UInt8 qp_cr;
+  XDAS_UInt8 zero;
 } IH264VDEC_TI_QpCbp;
 
 /**
@@ -2328,9 +2584,10 @@ typedef struct _IH264VDEC_TI_QpCbp {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_RefPicControl {
-    XDAS_UInt8 refidx[4];
-    XDAS_UInt8 refpicid[4];
+typedef struct _IH264VDEC_TI_RefPicControl
+{
+  XDAS_UInt8 refidx[4];
+  XDAS_UInt8 refpicid[4];
 
 } IH264VDEC_TI_RefPicControl;
 
@@ -2342,9 +2599,10 @@ typedef struct _IH264VDEC_TI_RefPicControl {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_MvBidirectional16 {
-    IH264VDEC_TI_MotionVector mv_forward[16];
-    IH264VDEC_TI_MotionVector mv_backward[16];
+typedef struct _IH264VDEC_TI_MvBidirectional16
+{
+  IH264VDEC_TI_MotionVector   mv_forward[16];
+  IH264VDEC_TI_MotionVector   mv_backward[16];
 } IH264VDEC_TI_MvBidirectional16;
 
 
@@ -2356,9 +2614,10 @@ typedef struct _IH264VDEC_TI_MvBidirectional16 {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_MvBidirectional4 {
-    IH264VDEC_TI_MotionVector mv_forward[4];
-    IH264VDEC_TI_MotionVector mv_backward[4];
+typedef struct _IH264VDEC_TI_MvBidirectional4
+{
+  IH264VDEC_TI_MotionVector   mv_forward[4];
+  IH264VDEC_TI_MotionVector   mv_backward[4];
 
 } IH264VDEC_TI_MvBidirectional4;
 
@@ -2403,27 +2662,27 @@ typedef struct _IH264VDEC_TI_MvBidirectional4 {
  *
  ******************************************************************************
 */
-typedef struct _IH264VDEC_TI_MbInfo {
-    IH264VDEC_TI_CommonInfo info;
+typedef struct _IH264VDEC_TI_MbInfo
+{
+  IH264VDEC_TI_CommonInfo info;
 
-    union {
-        IH264VDEC_TI_CabacContext cabac;
-        IH264VDEC_TI_CavlcContext cavlc;
-    } IH264VDEC_TI_context;
+  union {
+    IH264VDEC_TI_CabacContext  cabac;
+    IH264VDEC_TI_CavlcContext  cavlc;
+  } IH264VDEC_TI_context;
 
-    IH264VDEC_TI_IntraPredMode ipred_mode;
-    IH264VDEC_TI_MbPredType    mb_pred_type;
-    IH264VDEC_TI_QpCbp         qp_cbp;
-    IH264VDEC_TI_RefPicControl l0_ref_pic_control;
-    IH264VDEC_TI_RefPicControl l1_ref_pic_control;
+  IH264VDEC_TI_IntraPredMode  ipred_mode;
+  IH264VDEC_TI_MbPredType     mb_pred_type;
+  IH264VDEC_TI_QpCbp          qp_cbp;
+  IH264VDEC_TI_RefPicControl  l0_ref_pic_control;
+  IH264VDEC_TI_RefPicControl  l1_ref_pic_control;
 
-    union {
-        IH264VDEC_TI_MotionVector      mv_forward[16];
-        IH264VDEC_TI_MvBidirectional16 bidirectional16;
-        IH264VDEC_TI_MvBidirectional4  bidirectional4;
-    } IH264VDEC_TI_motion_vecs;
+  union {
+    IH264VDEC_TI_MotionVector       mv_forward[16];
+    IH264VDEC_TI_MvBidirectional16  bidirectional16;
+    IH264VDEC_TI_MvBidirectional4   bidirectional4;
+  } IH264VDEC_TI_motion_vecs;
 
 } IH264VDEC_TI_MbInfo;
 
 #endif             /* IH264VDEC_ */
-

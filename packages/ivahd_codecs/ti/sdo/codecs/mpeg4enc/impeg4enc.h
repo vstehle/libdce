@@ -751,6 +751,7 @@ typedef struct IMPEG4ENC_RateControlParams {
     XDAS_Int32 allowFrameSkip;
     XDAS_Int32 initialBufferLevel;
     XDAS_Int32 vbvBufferSize;
+    XDAS_Int32 qpMinIntra;
 } IMPEG4ENC_RateControlParams;
 
 
