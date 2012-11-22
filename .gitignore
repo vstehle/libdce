@@ -22,7 +22,3 @@ dcetestdec
 .interfaces
 .libraries*
 *.mak
-*.xem3
-ducati/ti/dce/package
-/ducati/ti/dce/baseimage/package/
-/ducati/ti/dce/lib/
