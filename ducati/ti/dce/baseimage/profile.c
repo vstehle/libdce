@@ -189,23 +189,6 @@ unsigned long get_core_total(unsigned core)
     return total;
 }
 
-#ifndef BUILD_FOR_SMP
-/***************************************************************
- * Core_getCoreId
- * -------------------------------------------------------------
- * Temporary function to remove with SMP BIOS
- *
- * @params: none
- *
- * @return: 1 to force CoreId to 1
- *
- ***************************************************************/
-unsigned long Core_getCoreId( void )
-{
-  return 1;
-}
-#endif//BUILD_FOR_SMP
-
 /***************************************************************
  * get_32k
  * -------------------------------------------------------------
@@ -331,7 +314,7 @@ void PSI_TracePrintf(TIMM_OSAL_TRACEGRP eTraceGrp, TIMM_OSAL_CHAR *pcFormat, ...
 //  static TIMM_OSAL_PTR MyMutex = NULL;
   unsigned long tstart = get_time();
   unsigned long key = Task_disable();
-  unsigned long CoreId = Core_getCoreId();
+  unsigned long CoreId = Core_getId();
 
 //  if(!MyMutex) TIMM_OSAL_MutexCreate( &MyMutex );
 //  TIMM_OSAL_MutexObtain(MyMutex, TIMM_OSAL_SUSPEND);
@@ -1132,7 +1115,7 @@ void kpi_CPU_profiler_print(void)
   {
     Task_Handle test;
     unsigned long key = Task_disable();
-    core_kpi = &bios_kpi[ Core_getCoreId() ];
+    core_kpi = &bios_kpi[ Core_getId() ];
     test = core_kpi->tasks[0].handle;
     instx1024 = get_time();
     for(i = 0; i < 1024; i++) psi_kpi_task_test( test, test );
@@ -1437,7 +1420,7 @@ void psi_kpi_task_switch(Task_Handle prev, Task_Handle next)
   if ( kpi_status & KPI_CPU_LOAD )
   {
     unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next, *context;
@@ -1491,7 +1474,7 @@ void psi_kpi_swi_begin(Swi_Handle swi)
   if ( kpi_status & KPI_CPU_LOAD )
   {
     unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next, *context;
@@ -1544,7 +1527,7 @@ void psi_kpi_swi_end(Swi_Handle swi)
   if ( kpi_status & KPI_CPU_LOAD )
   {
     unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context;
@@ -1586,7 +1569,7 @@ void psi_kpi_hwi_begin(Hwi_Handle hwi)
   if ( kpi_status & KPI_CPU_LOAD )
   {
     unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next, *context;
@@ -1639,7 +1622,7 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
   if ( kpi_status & KPI_CPU_LOAD )
   {
     unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context;
@@ -1681,7 +1664,7 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
 void psi_kpi_task_test(Task_Handle prev, Task_Handle next)
 {
     unsigned long key    = Hwi_disableCoreInts();
-    unsigned long CoreId = Core_getCoreId();
+    unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
     psi_context_info *context_next;
