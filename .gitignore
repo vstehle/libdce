@@ -22,3 +22,6 @@ dcetestdec
 .interfaces
 .libraries*
 *.mak
+/ducati/ti/dce/baseimage/package/
+/ducati/ti/dce/lib/
+/ducati/ti/dce/package/
