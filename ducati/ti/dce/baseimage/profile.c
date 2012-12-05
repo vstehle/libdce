@@ -1419,7 +1419,7 @@ void psi_kpi_task_switch(Task_Handle prev, Task_Handle next)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long key    = Hwi_disable();
     unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
@@ -1455,7 +1455,7 @@ void psi_kpi_task_switch(Task_Handle prev, Task_Handle next)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1473,7 +1473,7 @@ void psi_kpi_swi_begin(Swi_Handle swi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long key    = Hwi_disable();
     unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
@@ -1508,7 +1508,7 @@ void psi_kpi_swi_begin(Swi_Handle swi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1526,7 +1526,7 @@ void psi_kpi_swi_end(Swi_Handle swi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long key    = Hwi_disable();
     unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
@@ -1550,7 +1550,7 @@ void psi_kpi_swi_end(Swi_Handle swi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1568,7 +1568,7 @@ void psi_kpi_hwi_begin(Hwi_Handle hwi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long key    = Hwi_disable();
     unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
@@ -1603,7 +1603,7 @@ void psi_kpi_hwi_begin(Hwi_Handle hwi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1621,7 +1621,7 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
 {
   if ( kpi_status & KPI_CPU_LOAD )
   {
-    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long key    = Hwi_disable();
     unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
@@ -1645,7 +1645,7 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 #endif//INST_COST
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
   }
 }
 
@@ -1663,7 +1663,7 @@ void psi_kpi_hwi_end(Hwi_Handle hwi)
  ***************************************************************/
 void psi_kpi_task_test(Task_Handle prev, Task_Handle next)
 {
-    unsigned long key    = Hwi_disableCoreInts();
+    unsigned long key    = Hwi_disable();
     unsigned long CoreId = Core_getId();
     unsigned long tick   = get_time_core(CoreId);
     psi_bios_kpi *core_kpi = &bios_kpi[CoreId];
@@ -1683,7 +1683,7 @@ void psi_kpi_task_test(Task_Handle prev, Task_Handle next)
 
     core_kpi->prev_t32    = tick;                                 /* store tick: time when task actually starts */
 
-    Hwi_restoreCoreInts( key );
+    Hwi_restore( key );
 }
 
 
