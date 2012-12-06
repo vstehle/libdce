@@ -25,3 +25,5 @@ dcetestdec
 /ducati/ti/dce/baseimage/package/
 /ducati/ti/dce/lib/
 /ducati/ti/dce/package/
+/ducati/ti/dce/baseimage/ti_platform_omap4430_ipu/
+/ducati/ti/dce/baseimage/ti_platform_omap54xx_ipu/
