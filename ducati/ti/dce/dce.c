@@ -49,12 +49,10 @@
 #include <ti/sysbios/knl/Task.h>
 #include <ti/ipc/MultiProc.h>
 #include <ti/ipc/rpmsg/VirtQueue.h>
-#include <ti/pm/IpcPower.h>
 
 #include <ti/sdo/ce/Engine.h>
 #include <ti/sdo/ce/video3/viddec3.h>
 #include <ti/sdo/ce/video2/videnc2.h>
-#include <ti/sdo/fc/utils/fcutils.h>
 #include <ti/xdais/dm/xdm.h>
 #include <ti/sysbios/hal/Cache.h>
 
@@ -66,7 +64,6 @@
 
 #define DCE_PORT 42     /* so long, and thanks for all the fish */
 
-uint32_t suspend_initialised = 0;
 uint32_t dce_debug = 1;
 uint32_t dce_chipset_id;
 
@@ -135,26 +132,6 @@ static struct {
  * 58 characters, or the query will fail. */
 #define VERSION_SIZE 128
 static char version_buffer[VERSION_SIZE];
-
-/* the following callbacks are needed for suspend/resume
- * on the linux side.
- * - FC_suspend() waits for all algorithms to get deactivated and
- * and takes care of the resources acquired.
- * - FC_resume() does nothing for now, but we add it just in case
- * it gets populated in the future versions of framework components.
- *
- * Forced off mode during video decode/encode is not supported. */
-static void dce_suspend()
-{
-	INFO("Preparing for suspend...");
-	FC_suspend();
-}
-
-static void dce_resume()
-{
-	INFO("Restoring after suspend...");
-	FC_resume();
-}
 
 static void get_videnc2_version(VIDENC2_Handle h, char *buffer, unsigned size)
 {
@@ -295,15 +272,6 @@ static int connect(void *msg)
     }
 
     ivahd_init(req->chipset_id);
-
-    if (!suspend_initialised) {
-
-    /* registering sysbios-rpmsg callbacks for suspend/resume */
-    IpcPower_registerCallback(IpcPower_Event_SUSPEND, dce_suspend, 0);
-    IpcPower_registerCallback(IpcPower_Event_RESUME, dce_resume, 0);
-    suspend_initialised++;
-    }
-
     DEBUG("<<");
 
     return 0;
