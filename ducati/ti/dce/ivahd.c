@@ -78,9 +78,9 @@ static uint32_t get_ivahd_base(void)
 #define RM_IVAHD_RSTCTRL          IVAHD_REG(0xF10)
 #define RM_IVAHD_RSTST            IVAHD_REG(0xF14)
 
-#define CM_IVAHD_CLKSTCTRL        (*(volatile unsigned int *)0xAA008F00)
-#define CM_IVAHD_CLKCTRL          (*(volatile unsigned int *)0xAA008F20)
-#define CM_IVAHD_SL2_CLKCTRL      (*(volatile unsigned int *)0xAA008F28)
+#define CM_IVAHD_CLKSTCTRL        (*(volatile unsigned int *)0xAA009200)
+#define CM_IVAHD_CLKCTRL          (*(volatile unsigned int *)0xAA009220)
+#define CM_IVAHD_SL2_CLKCTRL      (*(volatile unsigned int *)0xAA009228)
 
 #define CM_DIV_M5_DPLL_IVA        (*(volatile unsigned int *)0xAA0041BC)
 
@@ -288,7 +288,7 @@ void ivahd_init(uint32_t chipset_id)
         break;
     case 0x5430:
     case 0x5432:
-        ivahd_base = 0xAAE06000;
+        ivahd_base = 0xAAE06300;
         ivahd_m5div = 0x04;
         break;
     default:
