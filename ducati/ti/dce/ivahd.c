@@ -60,6 +60,7 @@
 
 static uint32_t ivahd_base = 0;
 static uint32_t ivahd_m5div = 0x1f;
+static uint32_t cm_ivahd_base = 0;
 
 static uint32_t get_ivahd_base(void)
 {
@@ -72,15 +73,28 @@ static uint32_t get_ivahd_base(void)
     return ivahd_base;
 }
 
+static uint32_t get_cm_ivahd_base(void)
+{
+    if (!cm_ivahd_base) {
+        ERROR("Chipset ID not set!");
+        while (TRUE) {
+            asm(" wfi");
+        }
+    }
+    return cm_ivahd_base;
+}
+
 #define IVAHD_REG(off)            (*(volatile unsigned int *)(get_ivahd_base() + (off)))
 
 #define PM_IVAHD_PWRSTCTRL        IVAHD_REG(0xF00)
 #define RM_IVAHD_RSTCTRL          IVAHD_REG(0xF10)
 #define RM_IVAHD_RSTST            IVAHD_REG(0xF14)
 
-#define CM_IVAHD_CLKSTCTRL        (*(volatile unsigned int *)0xAA008F00)
-#define CM_IVAHD_CLKCTRL          (*(volatile unsigned int *)0xAA008F20)
-#define CM_IVAHD_SL2_CLKCTRL      (*(volatile unsigned int *)0xAA008F28)
+#define CM_IVAHD_REG(off)         (*(volatile unsigned int *)(get_cm_ivahd_base() + (off)))
+
+#define CM_IVAHD_CLKSTCTRL        CM_IVAHD_REG(0x00)
+#define CM_IVAHD_CLKCTRL          CM_IVAHD_REG(0x20)
+#define CM_IVAHD_SL2_CLKCTRL      CM_IVAHD_REG(0x28)
 
 #define CM_DIV_M5_DPLL_IVA        (*(volatile unsigned int *)0xAA0041BC)
 
@@ -264,16 +278,19 @@ void ivahd_init(uint32_t chipset_id)
     switch (chipset_id) {
     case 0x4430:
         ivahd_base = 0xAA306000;
+	cm_ivahd_base = 0xAA008F00;
         ivahd_m5div = 0x07;
         break;
     case 0x4460:
     case 0x4470:
         ivahd_base = 0xAA306000;
+	cm_ivahd_base = 0xAA008F00;
         ivahd_m5div = 0x05;
         break;
     case 0x5430:
     case 0x5432:
-        ivahd_base = 0xAAE06000;
+        ivahd_base = 0xAAE06300;
+	cm_ivahd_base = 0xAA009200;
         ivahd_m5div = 0x04;
         break;
     default:
@@ -281,7 +298,8 @@ void ivahd_init(uint32_t chipset_id)
         break;
     }
 
-    DEBUG("ivahd_base=%08x, ivahd_m5div=%x", ivahd_base, ivahd_m5div);
+    DEBUG("ivahd_base=%08x, cm_ivahd_base=%08x, ivahd_m5div=%x",
+		ivahd_base, cm_ivahd_base, ivahd_m5div);
 
     /* bit of a hack.. not sure if there is a better way for this: */
     HDVICP2_PARAMS.resetControlAddress[0] = ivahd_base + 0xF10;
