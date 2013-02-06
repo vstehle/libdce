@@ -192,11 +192,16 @@ unsigned long get_core_total(unsigned core)
  * Functions to determine omap type.
  * (Default to OMAP4)
  */
-static uint32_t kpi_chipset_id;
+static uint32_t kpi_chipset_id = 0;
+
+static int omap_class(void)
+{
+	return (kpi_chipset_id & 0xf0) >> 4;
+}
 
 static int is_omap5(void)
 {
-	return ((kpi_chipset_id & 0xf0) == 0x50) ? 1 : 0;
+	return (omap_class() == 5);
 }
 
 /***************************************************************
@@ -211,10 +216,17 @@ static int is_omap5(void)
  ***************************************************************/
 unsigned long get_32k(void)
 {
-	if (is_omap5())
-		return *((volatile OMX_U32 *)0xAAE04030);
-	else
+	switch (omap_class()) {
+	case 4:
 		return *((volatile OMX_U32 *)0xAA304010);
+
+	case 5:
+		return *((volatile OMX_U32 *)0xAAE04030);
+
+	default:
+		System_printf("get_32k: unknown chipset 0x%x!\n", kpi_chipset_id);
+		return 0;
+	}
 }
 
 /***************************************************************
