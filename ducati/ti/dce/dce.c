@@ -648,6 +648,7 @@ Bool dce_init(void)
     Task_Params_init(&params);
     params.instance->name = "dce-server";
     params.priority = Thread_Priority_ABOVE_NORMAL;
+    params.stackSize = 10000;
     Task_create(dce_main, &params, NULL);
 
     return TRUE;
