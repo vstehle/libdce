@@ -68,6 +68,7 @@ var M3 = xdc.useModule('ti.targets.arm.elf.M3');
 M3.rootDir = arm_cgtools_rootdir;
 M3.ccOpts.suffix += " -ms -pds=71";
 M3.lnkOpts.prefix += " --retain=.resource_table";
+M3.lnkOpts.suffix += " -x";
 
 /* Default platforms for M3 in non-SMP mode */
 var regPlatforms = [
