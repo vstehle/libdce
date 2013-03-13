@@ -66,9 +66,10 @@ typedef enum {
 } KPI_inst_status;
 
 /* function protypes */
-extern void kpi_instInit        (uint32_t chipset_id);
+extern void kpi_set_chipset_id  (uint32_t chipset_id);
+extern void kpi_instInit        (void);
 extern void kpi_instDeinit      (void);
-extern void kpi_before_codec    (uint32_t chipset_id);
+extern void kpi_before_codec    (void);
 extern void kpi_after_codec     (void);
 
 #if 0

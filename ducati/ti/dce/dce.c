@@ -272,6 +272,11 @@ static int connect(void *msg)
     }
 
     ivahd_init(req->chipset_id);
+
+#ifdef KPI_PROFILER
+    kpi_set_chipset_id();
+#endif
+
     DEBUG("<<");
 
     return 0;

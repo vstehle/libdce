@@ -196,12 +196,21 @@ static uint32_t kpi_chipset_id = 0;
 
 static int omap_class(void)
 {
-	return (kpi_chipset_id & 0xf0) >> 4;
+	return (kpi_chipset_id >> 12) & 0xf;
 }
 
 static int is_omap5(void)
 {
 	return (omap_class() == 5);
+}
+
+/*
+ * Set chipset id.
+ * Call this ASAP.
+ */
+void kpi_set_chipset_id(uint32_t chipset_id)
+{
+	kpi_chipset_id = chipset_id;
 }
 
 /***************************************************************
