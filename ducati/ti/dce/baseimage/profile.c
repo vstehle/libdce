@@ -210,6 +210,7 @@ static int is_omap5(void)
  */
 void kpi_set_chipset_id(uint32_t chipset_id)
 {
+	PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "KPI: chipset_id = 0x%x\n", chipset_id);
 	kpi_chipset_id = chipset_id;
 }
 
@@ -367,21 +368,15 @@ void PSI_TracePrintf(TIMM_OSAL_TRACEGRP eTraceGrp, TIMM_OSAL_CHAR *pcFormat, ...
  * Function used to do the aquisition of the instrumentation
  * setting. Then initialising the DBs and variables
  *
- * @params:
- *   uint32_t chipset_id : omap_rev, as received from Linux side (0x.*3. for
- *                         OMAP3, 0x.*4. for OMAP4, 0x.*5. for OMAP5).
- *
  * @return: none
  *
  ***************************************************************/
-void kpi_instInit(uint32_t chipset_id)
+void kpi_instInit(void)
 {
   /* don't change setup when already active */
   if( kpi_status & KPI_INST_RUN )
     return;
 
-  PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "KPI: chipset_id = 0x%x\n", chipset_id);
-  kpi_chipset_id = chipset_id;
 
   /* read control from the memory */
 
@@ -563,20 +558,17 @@ void kpi_IVA_profiler_init(void)
  * -------------------------------------------------------------
  * Function to be called before codec execution.
  *
- * @params:
- *   uint32_t chipset_id : see kpi_instInit()
- *
  * @return: none
  *
  ***************************************************************/
-void kpi_before_codec(uint32_t chipset_id)
+void kpi_before_codec(void)
 {
   unsigned long start, prev, delta;
 
 #ifndef OMX_ENABLE_DUCATI_LOAD
   /* Started 1st time */
   if( !(kpi_status & KPI_INST_RUN) )
-    kpi_instInit(chipset_id);
+    kpi_instInit();
 #endif//OMX_ENABLE_DUCATI_LOAD
 
   if( kpi_status & KPI_IVA_LOAD )
