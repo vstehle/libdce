@@ -67,7 +67,7 @@
 uint32_t dce_debug = 1;
 
 #define MEMORYSTATS_DEBUG
-//#define KPI_PROFILER
+#define KPI_PROFILER
 
 #ifdef KPI_PROFILER
 # include "baseimage/profile.h"
