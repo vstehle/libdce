@@ -210,8 +210,8 @@ static int is_omap5(void)
  */
 void kpi_set_chipset_id(uint32_t chipset_id)
 {
-	PSI_TracePrintf( TIMM_OSAL_TRACEGRP_SYSTEM, "KPI: chipset_id = 0x%x\n", chipset_id);
 	kpi_chipset_id = chipset_id;
+	System_printf("kpi chipset: 0x%x\n", kpi_chipset_id);
 }
 
 /***************************************************************
