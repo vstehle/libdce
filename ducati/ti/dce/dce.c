@@ -65,7 +65,6 @@
 #define DCE_PORT 42     /* so long, and thanks for all the fish */
 
 uint32_t dce_debug = 1;
-uint32_t dce_chipset_id;
 
 #define MEMORYSTATS_DEBUG
 #define KPI_PROFILER
@@ -251,7 +250,6 @@ static int connect(void *msg)
     struct dce_rpc_connect_req *req = msg;
 
     DEBUG(">> chipset_id=0x%x, debug=%d", req->chipset_id, req->debug);
-    dce_chipset_id = req->chipset_id;
     dce_debug = req->debug;
 
     if (dce_debug <= 1) {
@@ -274,7 +272,7 @@ static int connect(void *msg)
     ivahd_init(req->chipset_id);
 
 #ifdef KPI_PROFILER
-    kpi_set_chipset_id();
+    kpi_set_chipset_id(req->chipset_id);
 #endif
 
     DEBUG("<<");
@@ -331,7 +329,7 @@ static int codec_create(void *msg)
      * task can create codecs, too. */
     if (create_count++ == 0) {
         kpi_control = KPI_END_SUMMARY /*| KPI_IVA_DETAILS | KPI_CPU_DETAILS*/;
-        kpi_instInit(dce_chipset_id);
+        kpi_instInit();
     }
 #endif
 #ifdef MEMORYSTATS_DEBUG
@@ -499,7 +497,7 @@ static int codec_process(void *msg)
         ivahd_acquire();
 
 #ifdef KPI_PROFILER
-        kpi_before_codec(dce_chipset_id);
+        kpi_before_codec();
 #endif
 
         rsp->result = codec_fxns[codec_id].process(
